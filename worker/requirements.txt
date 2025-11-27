@@ -4,5 +4,5 @@ openai>=1.38.0,<2.0.0
 httpx==0.26.0
 neo4j>=5.26.0
 graphiti-core
-pydantic==2.6.0
+pydantic>=2.8.2,<3.0.0
 pydantic-settings==2.1.0
