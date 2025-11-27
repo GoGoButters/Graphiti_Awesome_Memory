@@ -1,0 +1,83 @@
+services:
+  neo4j:
+    image: ${NEO4J_IMAGE:-neo4j:5.6}
+    container_name: neo4j
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      - NEO4J_AUTH=${NEO4J_USER}/${NEO4J_PASSWORD}
+    volumes:
+      - neo4j_data:/data
+      - ./neo4j/init:/var/lib/neo4j/import
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  graphiti:
+    image: ${GRAPHITI_IMAGE:-getzep/graphiti:latest}
+    container_name: graphiti
+    ports:
+      - "3000:8000" # Expose internal 8000 to host 3000 as per config
+    environment:
+      - NEO4J_URI=${NEO4J_URI}
+      - NEO4J_USER=${NEO4J_USER}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL}
+      - PORT=8000 # Graphiti internal port
+    depends_on:
+      neo4j:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  adapter:
+    build:
+      context: ./backend/adapter
+    container_name: adapter
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env.adapter
+    environment:
+      - REDIS_URL=${REDIS_URL}
+      - GRAPHITI_URL=${GRAPHITI_URL}
+    depends_on:
+      - redis
+      - graphiti
+
+  worker:
+    build:
+      context: ./worker
+    container_name: worker
+    env_file:
+      - .env.worker
+    environment:
+      - REDIS_URL=${REDIS_URL}
+    depends_on:
+      - redis
+      - adapter
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: frontend
+    ports:
+      - "3000:80" # Nginx in frontend container serves on 80
+    env_file:
+      - ./frontend/.env
+    depends_on:
+      - adapter
+
+volumes:
+  neo4j_data:
+  redis_data:

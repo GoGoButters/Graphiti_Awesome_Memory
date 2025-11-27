@@ -1,0 +1,5 @@
+redis==5.0.1
+rq==1.15.1
+openai==1.10.0
+httpx==0.26.0
+# Add other deps if needed for tasks

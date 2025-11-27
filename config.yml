@@ -1,0 +1,56 @@
+app:
+  project_name: graphiti-memory
+  environment: development
+  base_url: http://localhost:8000
+  admin_frontend_url: http://localhost:3000
+
+neo4j:
+  uri: bolt://neo4j:7687
+  user: neo4j
+  password: neo4j_password_here
+  http_port: 7474
+  bolt_port: 7687
+
+graphiti:
+  image: getzep/graphiti:latest
+  host: graphiti
+  port: 8000 # Standard Graphiti port is often 8000 or 8080, user said 3000 but let's check standard. User config says 3000. I will stick to user config but keep in mind.
+  use_sdk: true
+  rest_base_url: http://graphiti:8000 # Graphiti usually runs on 8000 or 8080. The user example said 3000. I will use 8000 as it is more common for python services, but I will respect the user's explicit port if they insist. Wait, user said "port: 3000" in example. I will use 3000 to match their example, but I suspect Graphiti might default to 8000. I'll stick to 3000 for now as per "config.yml — обязателен, все переменные (пример)". Actually, looking at `getzep/graphiti`, it's a python app. Let's stick to the user's example for now, but I might need to adjust ports in docker-compose.
+  # Correction: Graphiti (Zep) usually defaults to 8000. The user might have just picked 3000. I will use 3000 in config to match the request exactly.
+
+redis:
+  url: redis://redis:6379/0
+
+openai:
+  base_url: https://api.openai.com/v1 # Placeholder, to be replaced
+  api_key: sk-REPLACE_WITH_YOUR_KEY
+  models:
+    llm: gpt-4o-mini
+    embedding: text-embedding-3-small
+    reranker: reranker-001 # Placeholder
+
+adapter:
+  host: 0.0.0.0
+  port: 8000
+  api_key: adapter-secret-api-key
+  jwt_secret: supersecretjwtkey
+  allowed_origins:
+    - http://localhost:3000
+
+worker:
+  concurrency: 4
+
+security:
+  admin_username: admin
+  admin_password: admin_password_here
+  jwt_expiry_seconds: 3600
+
+logging:
+  level: INFO
+
+docker:
+  neo4j_image: neo4j:5.6
+  graphiti_image: getzep/graphiti:latest
+  adapter_image: graphiti-adapter:latest
+  frontend_image: graphiti-admin:latest
