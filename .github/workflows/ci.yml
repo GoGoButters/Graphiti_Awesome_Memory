@@ -44,7 +44,7 @@ jobs:
         ADMIN_PASSWORD: password
       run: |
         cd backend/adapter
-        pytest
+        python -m pytest
 
   build-docker:
     runs-on: ubuntu-latest
