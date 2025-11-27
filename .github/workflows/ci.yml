@@ -44,6 +44,7 @@ jobs:
         ADMIN_PASSWORD: password
       run: |
         cd backend/adapter
+        export PYTHONPATH=$PYTHONPATH:.
         python -m pytest
 
   build-docker:
