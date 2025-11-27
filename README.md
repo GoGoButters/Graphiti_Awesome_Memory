@@ -26,9 +26,29 @@ A production-ready dev setup for a Graphiti memory platform, featuring a FastAPI
     
     Edit `config.yml` and set your secrets:
     ```yaml
-    openai:
-      api_key: sk-YOUR_KEY_HERE
-      base_url: https://api.openai.com/v1 # or your custom provider
+    # LLM Configuration
+    llm:
+      base_url: https://api.openai.com/v1
+      api_key: sk-YOUR_LLM_KEY_HERE
+      model: gpt-4o-mini
+    
+    # Embeddings Configuration
+    embeddings:
+      base_url: https://api.openai.com/v1
+      api_key: sk-YOUR_EMBEDDING_KEY_HERE
+      model: text-embedding-3-small
+    
+    # Reranker Configuration
+    reranker:
+      base_url: https://api.openai.com/v1
+      api_key: sk-YOUR_RERANKER_KEY_HERE
+      model: reranker-001
+    
+    # You can use the same API key for all three or different keys/providers
+    # Each component (LLM, Embeddings, Reranker) has its own:
+    # - base_url: API endpoint
+    # - api_key: Authentication key
+    # - model: Model name to use
     ```
     
 3.  **Generate Environment Files**:
