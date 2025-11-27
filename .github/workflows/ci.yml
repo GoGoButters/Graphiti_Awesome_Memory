@@ -29,8 +29,15 @@ jobs:
         NEO4J_PASSWORD: password
         GRAPHITI_URL: http://localhost:8000
         REDIS_URL: redis://localhost:6379/0
-        OPENAI_BASE_URL: https://api.openai.com/v1
-        OPENAI_API_KEY: sk-test
+        LLM_BASE_URL: https://api.openai.com/v1
+        LLM_API_KEY: sk-test
+        LLM_MODEL: gpt-4o-mini
+        EMBEDDING_BASE_URL: https://api.openai.com/v1
+        EMBEDDING_API_KEY: sk-test
+        EMBEDDING_MODEL: text-embedding-3-small
+        RERANKER_BASE_URL: https://api.openai.com/v1
+        RERANKER_API_KEY: sk-test
+        RERANKER_MODEL: reranker-001
         ADAPTER_API_KEY: test-key
         JWT_SECRET: test-secret
         ADMIN_USERNAME: admin
