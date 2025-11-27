@@ -1,6 +1,16 @@
 #!/bin/bash
 set -e
 
+# Check if PyYAML is installed
+if ! python3 -c "import yaml" 2>/dev/null; then
+    echo "Error: PyYAML is not installed."
+    echo "Please install it with one of the following commands:"
+    echo "  pip3 install pyyaml"
+    echo "  OR"
+    echo "  apt install python3-yaml"
+    exit 1
+fi
+
 # Ensure we are in the project root
 cd "$(dirname "$0")/.."
 

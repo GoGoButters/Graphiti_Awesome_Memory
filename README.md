@@ -16,6 +16,7 @@ A production-ready dev setup for a Graphiti memory platform, featuring a FastAPI
 ### Prerequisites
 
 - Docker and Docker Compose
+- Python 3 with PyYAML (`pip3 install pyyaml` or `apt install python3-yaml`)
 - OpenAI API Key (or compatible)
 
 ### Setup
