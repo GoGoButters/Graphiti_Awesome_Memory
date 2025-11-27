@@ -56,7 +56,7 @@ services:
       dockerfile: frontend/Dockerfile
     container_name: frontend
     ports:
-      - "3000:80"
+      - "3000:8080"
     env_file:
       - ./frontend/.env
     depends_on:
