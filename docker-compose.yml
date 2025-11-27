@@ -11,6 +11,8 @@ services:
       - NEO4J_AUTH=${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-password}
     volumes:
       - neo4j_data:/data
+    security_opt:
+      - apparmor:unconfined
     healthcheck:
       test: [ "CMD-SHELL", "wget --no-verbose --tries=1 --spider localhost:7474 || exit 1" ]
       interval: 10s
@@ -24,6 +26,8 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    security_opt:
+      - apparmor:unconfined
 
   adapter:
     build:
@@ -33,6 +37,8 @@ services:
       - "8000:8000"
     env_file:
       - .env.adapter
+    security_opt:
+      - apparmor:unconfined
     depends_on:
       neo4j:
         condition: service_healthy
@@ -46,6 +52,8 @@ services:
     container_name: worker
     env_file:
       - .env.worker
+    security_opt:
+      - apparmor:unconfined
     depends_on:
       - redis
       - adapter
@@ -59,6 +67,8 @@ services:
       - "3000:8080"
     env_file:
       - ./frontend/.env
+    security_opt:
+      - apparmor:unconfined
     depends_on:
       - adapter
 
