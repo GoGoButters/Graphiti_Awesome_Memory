@@ -7,8 +7,8 @@ logger = logging.getLogger(__name__)
 class EmbeddingService:
     def __init__(self):
         self.client = AsyncOpenAI(
-            api_key=settings.OPENAI_API_KEY,
-            base_url=settings.OPENAI_BASE_URL
+            api_key=settings.EMBEDDING_API_KEY,
+            base_url=settings.EMBEDDING_BASE_URL
         )
         self.model = settings.EMBEDDING_MODEL
 

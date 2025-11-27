@@ -18,11 +18,20 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str
     
-    # OpenAI
-    OPENAI_BASE_URL: str
-    OPENAI_API_KEY: str
+    # LLM
+    LLM_BASE_URL: str
+    LLM_API_KEY: str
     LLM_MODEL: str = "gpt-4o-mini"
+    
+    # Embeddings
+    EMBEDDING_BASE_URL: str
+    EMBEDDING_API_KEY: str
     EMBEDDING_MODEL: str = "text-embedding-3-small"
+    
+    # Reranker
+    RERANKER_BASE_URL: str
+    RERANKER_API_KEY: str
+    RERANKER_MODEL: str = "reranker-001"
     
     # Adapter
     ADAPTER_API_KEY: str
