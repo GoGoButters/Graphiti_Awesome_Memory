@@ -11,10 +11,6 @@ class Settings(BaseSettings):
     NEO4J_USER: str
     NEO4J_PASSWORD: str
     
-    # Graphiti
-    GRAPHITI_URL: str
-    GRAPHITI_USE_SDK: bool = True
-    
     # Redis
     REDIS_URL: str
     

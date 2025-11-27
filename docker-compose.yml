@@ -9,23 +9,11 @@ services:
       - NEO4J_AUTH=${NEO4J_USER}/${NEO4J_PASSWORD}
     volumes:
       - neo4j_data:/data
-      - ./neo4j/init:/var/lib/neo4j/import
     healthcheck:
       test: [ "CMD-SHELL", "wget --no-verbose --tries=1 --spider localhost:7474 || exit 1" ]
       interval: 10s
       timeout: 5s
       retries: 5
-
-  graphiti:
-    image: ${GRAPHITI_IMAGE:-getzep/graphiti:latest}
-    container_name: graphiti
-    ports:
-      - "3000:8000"
-    env_file:
-      - .env.graphiti
-    depends_on:
-      neo4j:
-        condition: service_healthy
 
   redis:
     image: redis:7-alpine
@@ -44,8 +32,10 @@ services:
     env_file:
       - .env.adapter
     depends_on:
-      - redis
-      - graphiti
+      neo4j:
+        condition: service_healthy
+      redis:
+        condition: service_started
 
   worker:
     build:
@@ -60,7 +50,8 @@ services:
 
   frontend:
     build:
-      context: ./frontend
+      context: .
+      dockerfile: frontend/Dockerfile
     container_name: frontend
     ports:
       - "3000:80"

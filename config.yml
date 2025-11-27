@@ -11,13 +11,6 @@ neo4j:
   http_port: 7474
   bolt_port: 7687
 
-graphiti:
-  image: getzep/graphiti:latest
-  host: graphiti
-  port: 3000
-  use_sdk: true
-  rest_base_url: http://graphiti:3000
-
 redis:
   url: redis://redis:6379/0
 
@@ -58,6 +51,5 @@ logging:
 
 docker:
   neo4j_image: neo4j:5.6
-  graphiti_image: getzep/graphiti:latest
   adapter_image: graphiti-adapter:latest
   frontend_image: graphiti-admin:latest

@@ -4,7 +4,7 @@ A production-ready dev setup for a Graphiti memory platform, featuring a FastAPI
 
 ## Architecture
 
-- **Graphiti**: Episodic/temporal knowledge graph service.
+- **Graphiti**: Python library for episodic/temporal knowledge graphs (integrated in Adapter and Worker).
 - **Neo4j**: Graph database backend.
 - **Adapter**: FastAPI service providing `append`, `query`, and `summary` endpoints.
 - **Worker**: Redis + RQ background worker for async tasks.

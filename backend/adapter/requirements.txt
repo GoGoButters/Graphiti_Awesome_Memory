@@ -9,7 +9,7 @@ redis==5.0.1
 rq==1.15.1
 prometheus-client==0.19.0
 neo4j==5.16.0
-# graphiti-core # If available, otherwise we use REST
+graphiti-core
 openai==1.10.0
 pytest==7.4.4
 pytest-asyncio==0.23.4

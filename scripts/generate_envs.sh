@@ -48,8 +48,6 @@ echo "Generating .env files..."
 NEO4J_URI=$(get_config_value "neo4j.uri")
 NEO4J_USER=$(get_config_value "neo4j.user")
 NEO4J_PASSWORD=$(get_config_value "neo4j.password")
-GRAPHITI_URL=$(get_config_value "graphiti.rest_base_url")
-GRAPHITI_USE_SDK=$(get_config_value "graphiti.use_sdk")
 REDIS_URL=$(get_config_value "redis.url")
 
 # LLM
@@ -79,8 +77,6 @@ cat > .env.adapter <<EOF
 NEO4J_URI=$NEO4J_URI
 NEO4J_USER=$NEO4J_USER
 NEO4J_PASSWORD=$NEO4J_PASSWORD
-GRAPHITI_URL=$GRAPHITI_URL
-GRAPHITI_USE_SDK=$GRAPHITI_USE_SDK
 REDIS_URL=$REDIS_URL
 
 LLM_BASE_URL=$LLM_BASE_URL
@@ -106,17 +102,6 @@ echo "Created .env.adapter"
 # .env.worker
 cp .env.adapter .env.worker
 echo "Created .env.worker"
-
-# .env.graphiti (Using LLM config as default OpenAI config for Graphiti container)
-cat > .env.graphiti <<EOF
-NEO4J_URI=$NEO4J_URI
-NEO4J_USER=$NEO4J_USER
-NEO4J_PASSWORD=$NEO4J_PASSWORD
-OPENAI_API_KEY=$LLM_API_KEY
-OPENAI_BASE_URL=$LLM_BASE_URL
-PORT=3000
-EOF
-echo "Created .env.graphiti"
 
 # .env.frontend
 ADAPTER_BASE_URL=$(get_config_value "app.base_url")
