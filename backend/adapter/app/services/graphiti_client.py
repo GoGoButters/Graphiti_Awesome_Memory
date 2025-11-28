@@ -42,14 +42,18 @@ class GraphitiWrapper:
                     original_create = self.chat.completions.create
                     
                     async def wrapped_create(*args, **kwargs):
-                        # 1. Inject strict JSON instruction
+                        # 1. Enforce JSON Object response format
+                        if 'response_format' not in kwargs:
+                            kwargs['response_format'] = {"type": "json_object"}
+                            
+                        # 2. Inject strict JSON instruction
                         messages = kwargs.get('messages', [])
                         if messages:
-                            json_instruction = "\n\nIMPORTANT: Return ONLY valid JSON. Do not include any explanation, markdown formatting, or code blocks. Just the raw JSON."
+                            json_instruction = "\n\nIMPORTANT: Return ONLY valid JSON. The output MUST be a JSON object matching the schema, NOT a list. Do not include any explanation or markdown."
                             if messages[-1]['role'] == 'user':
                                 messages[-1]['content'] += json_instruction
                             else:
-                                messages.append({"role": "system", "content": "Return ONLY valid JSON."})
+                                messages.append({"role": "system", "content": "Return ONLY valid JSON object."})
                         
                         # Call original method
                         response = await original_create(*args, **kwargs)
