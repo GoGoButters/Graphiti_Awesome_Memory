@@ -174,7 +174,11 @@ class GraphitiWrapper:
                                             content = json.dumps(parsed)
                                             logger.info("Fixing JSON: Renamed 'extracted_edges' to 'edges'")
                                     except json.JSONDecodeError:
-                                        pass
+                                        # If JSON parsing fails, check if it's plain text that needs wrapping
+                                        if content and not content.strip().startswith('{') and not content.strip().startswith('['):
+                                            # Wrap plain text in {"summary": "..."} for EntitySummary
+                                            logger.info("Fixing JSON: Wrapping plain text in summary object")
+                                            content = json.dumps({"summary": content.strip()})
                                     
                                     if content != original_content:
                                         logger.info(f"LLM Cleaned Response (HTTP): {content}")
@@ -252,7 +256,11 @@ class GraphitiWrapper:
                                                 content = json.dumps(parsed)
                                                 logger.info("Fixing JSON: Renamed 'extracted_edges' to 'edges'")
                                         except json.JSONDecodeError:
-                                            pass
+                                            # If JSON parsing fails, check if it's plain text that needs wrapping
+                                            if content and not content.strip().startswith('{') and not content.strip().startswith('['):
+                                                # Wrap plain text in {"summary": "..."} for EntitySummary
+                                                logger.info("Fixing JSON: Wrapping plain text in summary object")
+                                                content = json.dumps({"summary": content.strip()})
                                         
                                         if content != original_content:
                                             logger.info(f"LLM Cleaned Response (HTTP, non-standard): {content}")
