@@ -185,36 +185,42 @@ class GraphitiWrapper:
                                     try:
                                         # Try to parse to check structure
                                         parsed = json.loads(content)
+                                        modified = False
+                                        
                                         if isinstance(parsed, list):
                                             logger.info("Fixing JSON: List found, wrapping in 'extracted_entities'")
-                                            content = json.dumps({"extracted_entities": parsed})
+                                            parsed = {"extracted_entities": parsed}
+                                            modified = True
                                         elif isinstance(parsed, dict) and "entities" in parsed:
                                             logger.info("Fixing JSON: Renaming 'entities' to 'extracted_entities'")
                                             parsed["extracted_entities"] = parsed.pop("entities")
-                                            content = json.dumps(parsed)
+                                            modified = True
                                         
                                         # Fix entity_name -> name in extracted_entities
                                         if isinstance(parsed, dict) and "extracted_entities" in parsed:
                                             for entity in parsed["extracted_entities"]:
-                                                if "entity_name" in entity:
+                                                if isinstance(entity, dict) and "entity_name" in entity:
                                                     entity["name"] = entity.pop("entity_name")
-                                            content = json.dumps(parsed)
-                                            logger.info("Fixing JSON: Renamed 'entity_name' to 'name' in entities")
+                                                    modified = True
+                                            
+                                            # Fix NodeResolutions: extracted_entities -> entity_resolutions
+                                            # If the entities contain 'duplicates', it's a resolution result
+                                            entities = parsed["extracted_entities"]
+                                            if entities and isinstance(entities, list) and len(entities) > 0:
+                                                if isinstance(entities[0], dict) and "duplicates" in entities[0]:
+                                                    parsed["entity_resolutions"] = parsed.pop("extracted_entities")
+                                                    logger.info("Fixing JSON: Renamed 'extracted_entities' to 'entity_resolutions' (detected resolution format)")
+                                                    modified = True
                                         
                                         # Fix extracted_edges -> edges
                                         if isinstance(parsed, dict) and "extracted_edges" in parsed:
                                             parsed["edges"] = parsed.pop("extracted_edges")
-                                            content = json.dumps(parsed)
                                             logger.info("Fixing JSON: Renamed 'extracted_edges' to 'edges'")
+                                            modified = True
+                                        
+                                        if modified:
+                                            content = json.dumps(parsed)
                                             
-                                        # Fix NodeResolutions: extracted_entities -> entity_resolutions
-                                        # If the entities contain 'duplicates', it's likely a resolution result
-                                        if isinstance(parsed, dict) and "extracted_entities" in parsed:
-                                            entities = parsed["extracted_entities"]
-                                            if entities and isinstance(entities, list) and isinstance(entities[0], dict) and "duplicates" in entities[0]:
-                                                parsed["entity_resolutions"] = parsed.pop("extracted_entities")
-                                                content = json.dumps(parsed)
-                                                logger.info("Fixing JSON: Renamed 'extracted_entities' to 'entity_resolutions' (detected resolution format)")
                                     except json.JSONDecodeError:
                                         # If JSON parsing fails, check if it's plain text that needs wrapping
                                         if content and not content.strip().startswith('{') and not content.strip().startswith('['):
@@ -276,27 +282,41 @@ class GraphitiWrapper:
                                         # Fix List vs Object
                                         try:
                                             parsed = json.loads(content)
+                                            modified = False
+                                            
                                             if isinstance(parsed, list):
                                                 logger.info("Fixing JSON: List found, wrapping in 'extracted_entities'")
-                                                content = json.dumps({"extracted_entities": parsed})
+                                                parsed = {"extracted_entities": parsed}
+                                                modified = True
                                             elif isinstance(parsed, dict) and "entities" in parsed:
                                                 logger.info("Fixing JSON: Renaming 'entities' to 'extracted_entities'")
                                                 parsed["extracted_entities"] = parsed.pop("entities")
-                                                content = json.dumps(parsed)
+                                                modified = True
                                             
                                             # Fix entity_name -> name in extracted_entities
                                             if isinstance(parsed, dict) and "extracted_entities" in parsed:
                                                 for entity in parsed["extracted_entities"]:
-                                                    if "entity_name" in entity:
+                                                    if isinstance(entity, dict) and "entity_name" in entity:
                                                         entity["name"] = entity.pop("entity_name")
-                                                content = json.dumps(parsed)
-                                                logger.info("Fixing JSON: Renamed 'entity_name' to 'name' in entities")
+                                                        modified = True
+                                                
+                                                # Fix NodeResolutions: extracted_entities -> entity_resolutions
+                                                entities = parsed["extracted_entities"]
+                                                if entities and isinstance(entities, list) and len(entities) > 0:
+                                                    if isinstance(entities[0], dict) and "duplicates" in entities[0]:
+                                                        parsed["entity_resolutions"] = parsed.pop("extracted_entities")
+                                                        logger.info("Fixing JSON: Renamed 'extracted_entities' to 'entity_resolutions' (detected resolution format)")
+                                                        modified = True
                                             
                                             # Fix extracted_edges -> edges
                                             if isinstance(parsed, dict) and "extracted_edges" in parsed:
                                                 parsed["edges"] = parsed.pop("extracted_edges")
-                                                content = json.dumps(parsed)
                                                 logger.info("Fixing JSON: Renamed 'extracted_edges' to 'edges'")
+                                                modified = True
+                                            
+                                            if modified:
+                                                content = json.dumps(parsed)
+                                                
                                         except json.JSONDecodeError:
                                             # If JSON parsing fails, check if it's plain text that needs wrapping
                                             if content and not content.strip().startswith('{') and not content.strip().startswith('['):
