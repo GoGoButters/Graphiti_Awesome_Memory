@@ -56,7 +56,7 @@ class GraphitiWrapper:
             # Create embedder client
             embedder = OpenAIEmbedder(
                 client=embedder_async_client,
-                model=settings.EMBEDDING_MODEL
+                embedding_model=settings.EMBEDDING_MODEL
             )
             
             # Initialize Graphiti with custom clients
