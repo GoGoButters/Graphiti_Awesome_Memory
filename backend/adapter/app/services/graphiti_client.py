@@ -159,6 +159,14 @@ class GraphitiWrapper:
                                             logger.info("Fixing JSON: Renaming 'entities' to 'extracted_entities'")
                                             parsed["extracted_entities"] = parsed.pop("entities")
                                             content = json.dumps(parsed)
+                                        
+                                        # Fix entity_name -> name in extracted_entities
+                                        if isinstance(parsed, dict) and "extracted_entities" in parsed:
+                                            for entity in parsed["extracted_entities"]:
+                                                if "entity_name" in entity:
+                                                    entity["name"] = entity.pop("entity_name")
+                                            content = json.dumps(parsed)
+                                            logger.info("Fixing JSON: Renamed 'entity_name' to 'name' in entities")
                                     except json.JSONDecodeError:
                                         pass
                                     
@@ -223,6 +231,14 @@ class GraphitiWrapper:
                                                 logger.info("Fixing JSON: Renaming 'entities' to 'extracted_entities'")
                                                 parsed["extracted_entities"] = parsed.pop("entities")
                                                 content = json.dumps(parsed)
+                                            
+                                            # Fix entity_name -> name in extracted_entities
+                                            if isinstance(parsed, dict) and "extracted_entities" in parsed:
+                                                for entity in parsed["extracted_entities"]:
+                                                    if "entity_name" in entity:
+                                                        entity["name"] = entity.pop("entity_name")
+                                                content = json.dumps(parsed)
+                                                logger.info("Fixing JSON: Renamed 'entity_name' to 'name' in entities")
                                         except json.JSONDecodeError:
                                             pass
                                         
