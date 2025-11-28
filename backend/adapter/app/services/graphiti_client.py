@@ -30,7 +30,7 @@ class GraphitiWrapper:
             from openai import AsyncOpenAI
             from graphiti_core.llm_client.openai_client import OpenAIClient
             from graphiti_core.llm_client.config import LLMConfig
-            from graphiti_core.embedder.openai import OpenAIEmbedder
+            from graphiti_core.embedder.openai import OpenAIEmbedder, OpenAIEmbedderConfig
             
             # Create AsyncOpenAI client for LLM
             llm_async_client = AsyncOpenAI(
@@ -53,10 +53,14 @@ class GraphitiWrapper:
                 api_key=settings.EMBEDDING_API_KEY,
             )
             
-            # Create embedder client
+            # Create embedder client with config
             embedder = OpenAIEmbedder(
                 client=embedder_async_client,
-                embedding_model=settings.EMBEDDING_MODEL
+                config=OpenAIEmbedderConfig(
+                    embedding_model=settings.EMBEDDING_MODEL,
+                    api_key=settings.EMBEDDING_API_KEY,
+                    base_url=settings.EMBEDDING_BASE_URL
+                )
             )
             
             # Initialize Graphiti with custom clients
