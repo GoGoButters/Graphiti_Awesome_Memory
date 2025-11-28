@@ -39,6 +39,24 @@ class GraphitiWrapper:
                 api_key=settings.LLM_API_KEY,
             )
             
+            # Monkey patch to fix markdown JSON responses from local LLMs
+            original_create = llm_async_client.chat.completions.create
+            
+            async def patched_create(*args, **kwargs):
+                response = await original_create(*args, **kwargs)
+                if response.choices and response.choices[0].message.content:
+                    content = response.choices[0].message.content
+                    # Strip markdown code blocks if present
+                    if "```json" in content:
+                        content = content.replace("```json", "").replace("```", "").strip()
+                        response.choices[0].message.content = content
+                    elif "```" in content:
+                        content = content.replace("```", "").strip()
+                        response.choices[0].message.content = content
+                return response
+            
+            llm_async_client.chat.completions.create = patched_create
+            
             # Create LLM client
             llm_client = OpenAIClient(
                 client=llm_async_client,
