@@ -41,27 +41,47 @@ class GraphitiWrapper:
             
             # Monkey patch to fix markdown JSON responses from local LLMs
             original_create = llm_async_client.chat.completions.create
+            import re
             
             async def patched_create(*args, **kwargs):
                 response = await original_create(*args, **kwargs)
                 if response.choices and response.choices[0].message.content:
-                    content = response.choices[0].message.content
+                    raw_content = response.choices[0].message.content
+                    logger.info(f"LLM Raw Response: {raw_content}")
                     
-                    # Robust JSON extraction: find first [ and last ]
-                    try:
-                        start_idx = content.find('[')
-                        end_idx = content.rfind(']')
-                        
-                        if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
-                            # Extract just the JSON array
-                            cleaned_content = content[start_idx:end_idx+1]
-                            response.choices[0].message.content = cleaned_content
-                        elif "```json" in content:
-                             # Fallback for simple markdown stripping if [] not found (unlikely for list)
+                    content = raw_content
+                    
+                    # 1. Strip markdown code blocks using regex
+                    if "```" in content:
+                        match = re.search(r"```(?:\w+)?\s*(.*?)```", content, re.DOTALL)
+                        if match:
+                            content = match.group(1).strip()
+                        else:
                             content = content.replace("```json", "").replace("```", "").strip()
-                            response.choices[0].message.content = content
-                    except Exception as e:
-                        logger.warning(f"Failed to clean LLM response: {e}")
+                    
+                    # 2. Extract JSON object or array
+                    first_brace = content.find('{')
+                    first_bracket = content.find('[')
+                    
+                    start_idx = -1
+                    end_char = ''
+                    
+                    # Determine if it's an object or array
+                    if first_brace != -1 and (first_bracket == -1 or first_brace < first_bracket):
+                        start_idx = first_brace
+                        end_char = '}'
+                    elif first_bracket != -1:
+                        start_idx = first_bracket
+                        end_char = ']'
+                        
+                    if start_idx != -1:
+                        end_idx = content.rfind(end_char)
+                        if end_idx != -1 and end_idx > start_idx:
+                             content = content[start_idx:end_idx+1]
+                    
+                    if content != raw_content:
+                        logger.info(f"LLM Cleaned Response: {content}")
+                        response.choices[0].message.content = content
                         
                 return response
             
