@@ -40,13 +40,13 @@ class GraphitiWrapper:
             
             class CleaningHTTPTransport(httpx.AsyncHTTPTransport):
                 async def handle_async_request(self, request):
-                    # Inject JSON instruction into request if it's a chat completion
-                    if "/chat/completions" in str(request.url) and request.method == "POST":
+                    # Inject JSON instruction into request
+                    # We assume any POST request going through this client is an LLM request
+                    if request.method == "POST":
                         try:
-                            # We need to read the body, modify it, and reset it
-                            # This is complex because request.stream is an iterator.
-                            # Simpler to just rely on the response cleaning for now, 
-                            # as modifying the request body in httpx transport is tricky.
+                            # We can't easily modify the request body here without reading it,
+                            # which consumes the stream. So we rely on the system prompt
+                            # being set in the client config or the response cleaning.
                             pass
                         except Exception:
                             pass
@@ -54,13 +54,17 @@ class GraphitiWrapper:
                     response = await super().handle_async_request(request)
                     
                     # Intercept response
-                    if "/chat/completions" in str(request.url) and response.status_code == 200:
+                    if response.status_code == 200:
                         try:
                             # Read the response body
                             await response.aread()
-                            data = json.loads(response.content)
+                            try:
+                                data = json.loads(response.content)
+                            except json.JSONDecodeError:
+                                # Not JSON, ignore
+                                return response
                             
-                            if "choices" in data and len(data["choices"]) > 0:
+                            if isinstance(data, dict) and "choices" in data and len(data["choices"]) > 0:
                                 content = data["choices"][0]["message"]["content"]
                                 if content:
                                     logger.info(f"LLM Raw Response (HTTP): {content}")
