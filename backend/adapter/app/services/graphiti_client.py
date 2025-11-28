@@ -43,6 +43,7 @@ class GraphitiWrapper:
                     # Inject JSON instruction into request
                     # We assume any POST request going through this client is an LLM request
                     if request.method == "POST":
+                        logger.info(f"Intercepted POST request to: {request.url}")
                         try:
                             # We can't easily modify the request body here without reading it,
                             # which consumes the stream. So we rely on the system prompt
@@ -58,10 +59,14 @@ class GraphitiWrapper:
                         try:
                             # Read the response body
                             await response.aread()
+                            
+                            # Log first 500 chars of response for debugging
+                            logger.info(f"Response body preview: {response.content[:500]}")
+                            
                             try:
                                 data = json.loads(response.content)
                             except json.JSONDecodeError:
-                                # Not JSON, ignore
+                                logger.warning("Response is not valid JSON")
                                 return response
                             
                             if isinstance(data, dict) and "choices" in data and len(data["choices"]) > 0:
