@@ -33,6 +33,8 @@ async def get_users(username: str = Depends(verify_jwt)):
         
         return AdminUsersResponse(users=users, total=len(users))
     except Exception as e:
+        import logging
+        logging.getLogger("app.api.v1.admin").error(f"Error getting users: {e}")
         # Fallback to empty list if query fails
         return AdminUsersResponse(users=[], total=0)
 
