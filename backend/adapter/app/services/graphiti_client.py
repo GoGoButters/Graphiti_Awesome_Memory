@@ -33,79 +33,104 @@ class GraphitiWrapper:
             from graphiti_core.embedder.openai import OpenAIEmbedder, OpenAIEmbedderConfig
             from graphiti_core.cross_encoder.openai_reranker_client import OpenAIRerankerClient
             
-            # Custom AsyncOpenAI client to intercept and clean responses
-            class CustomAsyncOpenAI(AsyncOpenAI):
-                def __init__(self, *args, **kwargs):
-                    super().__init__(*args, **kwargs)
-                    
-                    # Capture the original create method
-                    original_create = self.chat.completions.create
-                    
-                    async def wrapped_create(*args, **kwargs):
-                        # 1. Enforce JSON Object response format
-                        if 'response_format' not in kwargs:
-                            kwargs['response_format'] = {"type": "json_object"}
-                            
-                        # 2. Inject strict JSON instruction
-                        messages = kwargs.get('messages', [])
-                        if messages:
-                            json_instruction = "\n\nIMPORTANT: Return ONLY valid JSON. The output MUST be a JSON object matching the schema, NOT a list. Do not include any explanation or markdown."
-                            if messages[-1]['role'] == 'user':
-                                messages[-1]['content'] += json_instruction
-                            else:
-                                messages.append({"role": "system", "content": "Return ONLY valid JSON object."})
-                        
-                        # Call original method
-                        response = await original_create(*args, **kwargs)
-                        
-                        # 2. Clean response
-                        if response.choices and response.choices[0].message.content:
-                            raw_content = response.choices[0].message.content
-                            logger.info(f"LLM Raw Response: {raw_content}")
-                            
-                            content = raw_content
-                            import re
-                            
-                            # Strip markdown
-                            if "```" in content:
-                                match = re.search(r"```(?:\w+)?\s*(.*?)```", content, re.DOTALL)
-                                if match:
-                                    content = match.group(1).strip()
-                                else:
-                                    content = content.replace("```json", "").replace("```", "").strip()
-                            
-                            # Extract JSON
-                            first_brace = content.find('{')
-                            first_bracket = content.find('[')
-                            
-                            start_idx = -1
-                            end_char = ''
-                            
-                            if first_brace != -1 and (first_bracket == -1 or first_brace < first_bracket):
-                                start_idx = first_brace
-                                end_char = '}'
-                            elif first_bracket != -1:
-                                start_idx = first_bracket
-                                end_char = ']'
-                                
-                            if start_idx != -1:
-                                end_idx = content.rfind(end_char)
-                                if end_idx != -1 and end_idx > start_idx:
-                                     content = content[start_idx:end_idx+1]
-                            
-                            if content != raw_content:
-                                logger.info(f"LLM Cleaned Response: {content}")
-                                response.choices[0].message.content = content
-                                
-                        return response
-                    
-                    # Override the method on this instance
-                    self.chat.completions.create = wrapped_create
+            # Custom HTTP Transport to intercept and clean responses at the network layer
+            import httpx
+            import json
+            import re
+            
+            class CleaningHTTPTransport(httpx.AsyncHTTPTransport):
+                async def handle_async_request(self, request):
+                    # Inject JSON instruction into request if it's a chat completion
+                    if "/chat/completions" in str(request.url) and request.method == "POST":
+                        try:
+                            # We need to read the body, modify it, and reset it
+                            # This is complex because request.stream is an iterator.
+                            # Simpler to just rely on the response cleaning for now, 
+                            # as modifying the request body in httpx transport is tricky.
+                            pass
+                        except Exception:
+                            pass
 
-            # Create AsyncOpenAI client for LLM using the custom class
-            llm_async_client = CustomAsyncOpenAI(
+                    response = await super().handle_async_request(request)
+                    
+                    # Intercept response
+                    if "/chat/completions" in str(request.url) and response.status_code == 200:
+                        try:
+                            # Read the response body
+                            await response.aread()
+                            data = json.loads(response.content)
+                            
+                            if "choices" in data and len(data["choices"]) > 0:
+                                content = data["choices"][0]["message"]["content"]
+                                if content:
+                                    logger.info(f"LLM Raw Response (HTTP): {content}")
+                                    original_content = content
+                                    
+                                    # 1. Clean Markdown/XML
+                                    if "```" in content:
+                                        match = re.search(r"```(?:\w+)?\s*(.*?)```", content, re.DOTALL)
+                                        if match:
+                                            content = match.group(1).strip()
+                                        else:
+                                            content = content.replace("```json", "").replace("```", "").strip()
+                                    
+                                    # 2. Extract JSON structure (find first { or [ and last } or ])
+                                    start_brace = content.find('{')
+                                    start_bracket = content.find('[')
+                                    
+                                    start_idx = -1
+                                    end_char = ''
+                                    
+                                    if start_brace != -1 and (start_bracket == -1 or start_brace < start_bracket):
+                                        start_idx = start_brace
+                                        end_char = '}'
+                                    elif start_bracket != -1:
+                                        start_idx = start_bracket
+                                        end_char = ']'
+                                        
+                                    if start_idx != -1:
+                                        end_idx = content.rfind(end_char)
+                                        if end_idx != -1 and end_idx > start_idx:
+                                            content = content[start_idx:end_idx+1]
+
+                                    # 3. Fix List vs Object
+                                    try:
+                                        # Try to parse to check structure
+                                        parsed = json.loads(content)
+                                        if isinstance(parsed, list):
+                                            logger.info("Fixing JSON: List found, wrapping in 'entities'")
+                                            # Wrap list in object with 'entities' key (common default)
+                                            content = json.dumps({"entities": parsed})
+                                    except json.JSONDecodeError:
+                                        pass
+                                    
+                                    if content != original_content:
+                                        logger.info(f"LLM Cleaned Response (HTTP): {content}")
+                                        data["choices"][0]["message"]["content"] = content
+                                        
+                                        # Re-encode response
+                                        new_body = json.dumps(data).encode('utf-8')
+                                        
+                                        return httpx.Response(
+                                            status_code=response.status_code,
+                                            headers=response.headers,
+                                            content=new_body,
+                                            request=request,
+                                            extensions=response.extensions
+                                        )
+                        except Exception as e:
+                            logger.error(f"Error in CleaningHTTPTransport: {e}")
+                            
+                    return response
+
+            # Create custom http client
+            http_client = httpx.AsyncClient(transport=CleaningHTTPTransport())
+
+            # Create AsyncOpenAI client for LLM using the custom http client
+            llm_async_client = AsyncOpenAI(
                 base_url=settings.LLM_BASE_URL,
                 api_key=settings.LLM_API_KEY,
+                http_client=http_client
             )
             
             # Create LLM client
