@@ -206,6 +206,15 @@ class GraphitiWrapper:
                                             parsed["edges"] = parsed.pop("extracted_edges")
                                             content = json.dumps(parsed)
                                             logger.info("Fixing JSON: Renamed 'extracted_edges' to 'edges'")
+                                            
+                                        # Fix NodeResolutions: extracted_entities -> entity_resolutions
+                                        # If the entities contain 'duplicates', it's likely a resolution result
+                                        if isinstance(parsed, dict) and "extracted_entities" in parsed:
+                                            entities = parsed["extracted_entities"]
+                                            if entities and isinstance(entities, list) and isinstance(entities[0], dict) and "duplicates" in entities[0]:
+                                                parsed["entity_resolutions"] = parsed.pop("extracted_entities")
+                                                content = json.dumps(parsed)
+                                                logger.info("Fixing JSON: Renamed 'extracted_entities' to 'entity_resolutions' (detected resolution format)")
                                     except json.JSONDecodeError:
                                         # If JSON parsing fails, check if it's plain text that needs wrapping
                                         if content and not content.strip().startswith('{') and not content.strip().startswith('['):
@@ -316,14 +325,11 @@ class GraphitiWrapper:
                             
                     return response
 
-            # Create custom http client
-            http_client = httpx.AsyncClient(transport=CleaningHTTPTransport())
-
             # Create AsyncOpenAI client for LLM using the custom http client
             llm_async_client = AsyncOpenAI(
                 base_url=settings.LLM_BASE_URL,
                 api_key=settings.LLM_API_KEY,
-                http_client=http_client
+                http_client=httpx.AsyncClient(transport=CleaningHTTPTransport())
             )
             
             # Create LLM client
@@ -339,6 +345,7 @@ class GraphitiWrapper:
             embedder_async_client = AsyncOpenAI(
                 base_url=settings.EMBEDDING_BASE_URL,
                 api_key=settings.EMBEDDING_API_KEY,
+                http_client=httpx.AsyncClient(transport=CleaningHTTPTransport())
             )
             
             # Create embedder client with config
@@ -355,6 +362,7 @@ class GraphitiWrapper:
             reranker_async_client = AsyncOpenAI(
                 base_url=settings.RERANKER_BASE_URL,
                 api_key=settings.RERANKER_API_KEY,
+                http_client=httpx.AsyncClient(transport=CleaningHTTPTransport())
             )
             
             # Create reranker client
