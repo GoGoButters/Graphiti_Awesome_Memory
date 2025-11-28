@@ -16,9 +16,9 @@ async def get_users(username: str = Depends(verify_jwt)):
         
         query = """
         MATCH (e:Episodic)
-        WITH split(e.name, '_')[0] AS user_id, count(e) AS episodes_count
+        WITH split(e.name, '_')[0] AS user_id, count(e) AS episodes_count, max(e.created_at) as last_updated
         WHERE user_id IS NOT NULL AND user_id <> ''
-        RETURN user_id, episodes_count
+        RETURN user_id, episodes_count, last_updated
         ORDER BY episodes_count DESC
         """
         
@@ -27,7 +27,11 @@ async def get_users(username: str = Depends(verify_jwt)):
             records = await result.data()
         
         users = [
-            UserStats(user_id=record["user_id"], episodes_count=record["episodes_count"])
+            UserStats(
+                user_id=record["user_id"], 
+                episodes_count=record["episodes_count"],
+                last_updated=record["last_updated"]
+            )
             for record in records
         ]
         
