@@ -39,53 +39,73 @@ class GraphitiWrapper:
                 api_key=settings.LLM_API_KEY,
             )
             
-            # Monkey patch to fix markdown JSON responses from local LLMs
-            original_create = llm_async_client.chat.completions.create
+            # Global monkey patch to fix markdown JSON responses from local LLMs
+            # This affects ALL AsyncOpenAI clients, which is what we want
+            from openai.resources.chat.completions import AsyncCompletions
             import re
             
-            async def patched_create(*args, **kwargs):
-                response = await original_create(*args, **kwargs)
-                if response.choices and response.choices[0].message.content:
-                    raw_content = response.choices[0].message.content
-                    logger.info(f"LLM Raw Response: {raw_content}")
-                    
-                    content = raw_content
-                    
-                    # 1. Strip markdown code blocks using regex
-                    if "```" in content:
-                        match = re.search(r"```(?:\w+)?\s*(.*?)```", content, re.DOTALL)
-                        if match:
-                            content = match.group(1).strip()
+            # Only patch if not already patched
+            if not getattr(AsyncCompletions.create, "_is_patched", False):
+                original_create = AsyncCompletions.create
+                
+                async def patched_create(self, *args, **kwargs):
+                    # 1. Inject strict JSON instruction
+                    messages = kwargs.get('messages', [])
+                    if messages:
+                        # Add system message or append to the last user message
+                        json_instruction = "\n\nIMPORTANT: Return ONLY valid JSON. Do not include any explanation, markdown formatting, or code blocks. Just the raw JSON."
+                        
+                        # Try to append to the last message content if it's a user message
+                        if messages[-1]['role'] == 'user':
+                            messages[-1]['content'] += json_instruction
                         else:
-                            content = content.replace("```json", "").replace("```", "").strip()
+                            # Or add a system message at the end (or beginning)
+                            messages.append({"role": "system", "content": "Return ONLY valid JSON."})
+                            
+                    response = await original_create(self, *args, **kwargs)
                     
-                    # 2. Extract JSON object or array
-                    first_brace = content.find('{')
-                    first_bracket = content.find('[')
-                    
-                    start_idx = -1
-                    end_char = ''
-                    
-                    # Determine if it's an object or array
-                    if first_brace != -1 and (first_bracket == -1 or first_brace < first_bracket):
-                        start_idx = first_brace
-                        end_char = '}'
-                    elif first_bracket != -1:
-                        start_idx = first_bracket
-                        end_char = ']'
+                    if response.choices and response.choices[0].message.content:
+                        raw_content = response.choices[0].message.content
+                        logger.info(f"LLM Raw Response: {raw_content}")
                         
-                    if start_idx != -1:
-                        end_idx = content.rfind(end_char)
-                        if end_idx != -1 and end_idx > start_idx:
-                             content = content[start_idx:end_idx+1]
-                    
-                    if content != raw_content:
-                        logger.info(f"LLM Cleaned Response: {content}")
-                        response.choices[0].message.content = content
+                        content = raw_content
                         
-                return response
-            
-            llm_async_client.chat.completions.create = patched_create
+                        # 2. Strip markdown code blocks using regex
+                        if "```" in content:
+                            match = re.search(r"```(?:\w+)?\s*(.*?)```", content, re.DOTALL)
+                            if match:
+                                content = match.group(1).strip()
+                            else:
+                                content = content.replace("```json", "").replace("```", "").strip()
+                        
+                        # 3. Extract JSON object or array
+                        first_brace = content.find('{')
+                        first_bracket = content.find('[')
+                        
+                        start_idx = -1
+                        end_char = ''
+                        
+                        # Determine if it's an object or array
+                        if first_brace != -1 and (first_bracket == -1 or first_brace < first_bracket):
+                            start_idx = first_brace
+                            end_char = '}'
+                        elif first_bracket != -1:
+                            start_idx = first_bracket
+                            end_char = ']'
+                            
+                        if start_idx != -1:
+                            end_idx = content.rfind(end_char)
+                            if end_idx != -1 and end_idx > start_idx:
+                                 content = content[start_idx:end_idx+1]
+                        
+                        if content != raw_content:
+                            logger.info(f"LLM Cleaned Response: {content}")
+                            response.choices[0].message.content = content
+                            
+                    return response
+                
+                patched_create._is_patched = True
+                AsyncCompletions.create = patched_create
             
             # Create LLM client
             llm_client = OpenAIClient(
