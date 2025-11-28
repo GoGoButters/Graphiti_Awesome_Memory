@@ -103,6 +103,7 @@ echo "Created .env.adapter"
 cat > .env <<EOF
 NEO4J_USER=$NEO4J_USER
 NEO4J_PASSWORD=$NEO4J_PASSWORD
+NEO4J_IMAGE=neo4j:5.26.0
 EOF
 echo "Created .env"
 
