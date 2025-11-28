@@ -11,7 +11,11 @@ export default function UserGraph() {
     useEffect(() => {
         apiClient.get(`/admin/users/${userId}/graph`)
             .then(res => {
-                setElements(res.data);
+                if (res.data && res.data.nodes && res.data.edges) {
+                    setElements([...res.data.nodes, ...res.data.edges]);
+                } else {
+                    setElements([]);
+                }
                 setLoading(false);
             })
             .catch(err => {
