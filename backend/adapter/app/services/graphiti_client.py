@@ -98,7 +98,40 @@ class GraphitiWrapper:
                         except Exception:
                             pass
 
-                    response = await super().handle_async_request(request)
+                    import asyncio
+                    import time
+
+                    # Retry configuration
+                    TIMEOUT = 30
+                    RETRY_INTERVAL = 5
+                    start_time = time.time()
+
+                    while True:
+                        try:
+                            response = await super().handle_async_request(request)
+                            
+                            # If successful, break loop
+                            if response.status_code < 400:
+                                break
+                                
+                            # If error, check timeout
+                            elapsed = time.time() - start_time
+                            if elapsed >= TIMEOUT:
+                                logger.error(f"Request failed after {TIMEOUT}s retrying. Final status: {response.status_code}")
+                                break
+                                
+                            logger.warning(f"Request failed with status {response.status_code}. Retrying in {RETRY_INTERVAL}s... (Elapsed: {int(elapsed)}s)")
+                            await asyncio.sleep(RETRY_INTERVAL)
+                            
+                        except Exception as e:
+                            # Handle network errors
+                            elapsed = time.time() - start_time
+                            if elapsed >= TIMEOUT:
+                                logger.error(f"Request failed after {TIMEOUT}s retrying. Error: {e}")
+                                raise e
+                                
+                            logger.warning(f"Request failed with error {e}. Retrying in {RETRY_INTERVAL}s... (Elapsed: {int(elapsed)}s)")
+                            await asyncio.sleep(RETRY_INTERVAL)
                     
                     # Intercept response
                     if response.status_code == 200:
