@@ -8,8 +8,33 @@ router = APIRouter()
 
 @router.get("/users", response_model=AdminUsersResponse)
 async def get_users(username: str = Depends(verify_jwt)):
-    # Mock implementation
-    return AdminUsersResponse(users=[], total=0)
+    """Get list of all users with their episode counts"""
+    try:
+        # Query Neo4j to get unique users from episodes
+        # Graphiti stores episodes with source_description like "api (user)" or "n8n (user)"
+        # We extract user_id from episode names which follow pattern: {user_id}_{timestamp}
+        
+        query = """
+        MATCH (e:Episodic)
+        WITH split(e.name, '_')[0] AS user_id, count(e) AS episodes_count
+        WHERE user_id IS NOT NULL AND user_id <> ''
+        RETURN user_id, episodes_count
+        ORDER BY episodes_count DESC
+        """
+        
+        async with graphiti_client.client.driver.session() as session:
+            result = await session.run(query)
+            records = await result.data()
+        
+        users = [
+            UserStats(user_id=record["user_id"], episodes_count=record["episodes_count"])
+            for record in records
+        ]
+        
+        return AdminUsersResponse(users=users, total=len(users))
+    except Exception as e:
+        # Fallback to empty list if query fails
+        return AdminUsersResponse(users=[], total=0)
 
 @router.get("/users/{user_id}/graph")
 async def get_user_graph(user_id: str, depth: int = 2, username: str = Depends(verify_jwt)):
