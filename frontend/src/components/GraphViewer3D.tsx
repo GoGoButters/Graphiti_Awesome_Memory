@@ -55,7 +55,7 @@ export default function GraphViewer3D({ elements }: GraphViewer3DProps) {
     }, [elements]);
 
     return (
-        <div className="w-full h-[600px] border rounded overflow-hidden bg-gray-900">
+        <div className="w-full h-full bg-gray-900">
             <ForceGraph3D
                 graphData={graphData}
                 nodeLabel="name"
