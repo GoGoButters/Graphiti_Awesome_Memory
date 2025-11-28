@@ -5,8 +5,10 @@ services:
     ports:
       - "7474:7474"
       - "7687:7687"
+    env_file:
+      - .env.adapter
     environment:
-      - NEO4J_AUTH=neo4j/your_password_here
+      - NEO4J_AUTH=${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-password}
     volumes:
       - neo4j_data:/data
     security_opt:
