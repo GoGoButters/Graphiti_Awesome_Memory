@@ -40,7 +40,7 @@ async def append_memory(
         # background_tasks.add_task(process_episode, request.user_id, request.text, request.metadata)
         
         # Real implementation with Graphiti:
-        # await graphiti_client.add_episode(request.user_id, request.text, request.metadata)
+        await graphiti_client.add_episode(request.user_id, request.text, request.metadata)
         
         return MemoryAppendResponse(
             ok=True,
