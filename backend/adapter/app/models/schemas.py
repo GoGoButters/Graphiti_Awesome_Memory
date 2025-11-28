@@ -19,10 +19,10 @@ class MemoryQueryRequest(BaseModel):
     limit: int = 10
 
 class MemoryHit(BaseModel):
-    id: str
-    text: str
-    ts: datetime
+    fact: str  # The relationship fact from Graphiti
     score: float
+    uuid: str
+    created_at: datetime
     metadata: Optional[Dict[str, Any]] = {}
 
 class MemoryQueryResponse(BaseModel):
