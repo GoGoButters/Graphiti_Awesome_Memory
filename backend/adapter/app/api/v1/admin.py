@@ -26,14 +26,20 @@ async def get_users(username: str = Depends(verify_jwt)):
             result = await session.run(query)
             records = await result.data()
         
-        users = [
-            UserStats(
+        users = []
+        for record in records:
+            last_updated = record["last_updated"]
+            # Convert Neo4j DateTime to python datetime if needed
+            if hasattr(last_updated, 'to_native'):
+                last_updated = last_updated.to_native()
+            elif hasattr(last_updated, 'iso_format'):
+                last_updated = last_updated.iso_format()
+                
+            users.append(UserStats(
                 user_id=record["user_id"], 
                 episodes_count=record["episodes_count"],
-                last_updated=record["last_updated"]
-            )
-            for record in records
-        ]
+                last_updated=last_updated
+            ))
         
         return AdminUsersResponse(users=users, total=len(users))
     except Exception as e:
