@@ -46,13 +46,23 @@ class GraphitiWrapper:
                 response = await original_create(*args, **kwargs)
                 if response.choices and response.choices[0].message.content:
                     content = response.choices[0].message.content
-                    # Strip markdown code blocks if present
-                    if "```json" in content:
-                        content = content.replace("```json", "").replace("```", "").strip()
-                        response.choices[0].message.content = content
-                    elif "```" in content:
-                        content = content.replace("```", "").strip()
-                        response.choices[0].message.content = content
+                    
+                    # Robust JSON extraction: find first [ and last ]
+                    try:
+                        start_idx = content.find('[')
+                        end_idx = content.rfind(']')
+                        
+                        if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                            # Extract just the JSON array
+                            cleaned_content = content[start_idx:end_idx+1]
+                            response.choices[0].message.content = cleaned_content
+                        elif "```json" in content:
+                             # Fallback for simple markdown stripping if [] not found (unlikely for list)
+                            content = content.replace("```json", "").replace("```", "").strip()
+                            response.choices[0].message.content = content
+                    except Exception as e:
+                        logger.warning(f"Failed to clean LLM response: {e}")
+                        
                 return response
             
             llm_async_client.chat.completions.create = patched_create
