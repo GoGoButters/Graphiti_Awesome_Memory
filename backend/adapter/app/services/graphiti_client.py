@@ -167,6 +167,12 @@ class GraphitiWrapper:
                                                     entity["name"] = entity.pop("entity_name")
                                             content = json.dumps(parsed)
                                             logger.info("Fixing JSON: Renamed 'entity_name' to 'name' in entities")
+                                        
+                                        # Fix extracted_edges -> edges
+                                        if isinstance(parsed, dict) and "extracted_edges" in parsed:
+                                            parsed["edges"] = parsed.pop("extracted_edges")
+                                            content = json.dumps(parsed)
+                                            logger.info("Fixing JSON: Renamed 'extracted_edges' to 'edges'")
                                     except json.JSONDecodeError:
                                         pass
                                     
@@ -239,6 +245,12 @@ class GraphitiWrapper:
                                                         entity["name"] = entity.pop("entity_name")
                                                 content = json.dumps(parsed)
                                                 logger.info("Fixing JSON: Renamed 'entity_name' to 'name' in entities")
+                                            
+                                            # Fix extracted_edges -> edges
+                                            if isinstance(parsed, dict) and "extracted_edges" in parsed:
+                                                parsed["edges"] = parsed.pop("extracted_edges")
+                                                content = json.dumps(parsed)
+                                                logger.info("Fixing JSON: Renamed 'extracted_edges' to 'edges'")
                                         except json.JSONDecodeError:
                                             pass
                                         
