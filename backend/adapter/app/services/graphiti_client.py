@@ -31,6 +31,7 @@ class GraphitiWrapper:
             from graphiti_core.llm_client.openai_client import OpenAIClient
             from graphiti_core.llm_client.config import LLMConfig
             from graphiti_core.embedder.openai import OpenAIEmbedder, OpenAIEmbedderConfig
+            from graphiti_core.cross_encoder.openai_reranker_client import OpenAIRerankerClient
             
             # Create AsyncOpenAI client for LLM
             llm_async_client = AsyncOpenAI(
@@ -63,18 +64,36 @@ class GraphitiWrapper:
                 )
             )
             
+            # Create AsyncOpenAI client for reranker
+            reranker_async_client = AsyncOpenAI(
+                base_url=settings.RERANKER_BASE_URL,
+                api_key=settings.RERANKER_API_KEY,
+            )
+            
+            # Create reranker client
+            reranker = OpenAIRerankerClient(
+                client=reranker_async_client,
+                config=LLMConfig(
+                    model=settings.RERANKER_MODEL,
+                    api_key=settings.RERANKER_API_KEY,
+                    base_url=settings.RERANKER_BASE_URL
+                )
+            )
+            
             # Initialize Graphiti with custom clients
             self.client = Graphiti(
                 settings.NEO4J_URI,
                 settings.NEO4J_USER,
                 settings.NEO4J_PASSWORD,
                 llm_client=llm_client,
-                embedder=embedder
+                embedder=embedder,
+                cross_encoder=reranker
             )
             
             logger.info(f"Graphiti client initialized with Neo4j at {settings.NEO4J_URI}")
             logger.info(f"Using LLM: {settings.LLM_MODEL} at {settings.LLM_BASE_URL}")
             logger.info(f"Using Embedder: {settings.EMBEDDING_MODEL} at {settings.EMBEDDING_BASE_URL}")
+            logger.info(f"Using Reranker: {settings.RERANKER_MODEL} at {settings.RERANKER_BASE_URL}")
             
         except Exception as e:
             logger.error(f"Failed to initialize Graphiti client: {e}")
