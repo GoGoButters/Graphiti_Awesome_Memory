@@ -25,14 +25,53 @@ class GraphitiWrapper:
     """
     
     def __init__(self):
-        """Initialize Graphiti client with Neo4j connection"""
+        """Initialize Graphiti client with Neo4j connection and custom LLM/Embedder"""
         try:
+            from openai import AsyncOpenAI
+            from graphiti_core.llm_client.openai_client import OpenAIClient
+            from graphiti_core.llm_client.config import LLMConfig
+            from graphiti_core.embedder.openai import OpenAIEmbedder
+            
+            # Create AsyncOpenAI client for LLM
+            llm_async_client = AsyncOpenAI(
+                base_url=settings.LLM_BASE_URL,
+                api_key=settings.LLM_API_KEY,
+            )
+            
+            # Create LLM client
+            llm_client = OpenAIClient(
+                client=llm_async_client,
+                config=LLMConfig(
+                    model=settings.LLM_MODEL,
+                    small_model=settings.LLM_MODEL  # Use same model for now
+                )
+            )
+            
+            # Create AsyncOpenAI client for embeddings
+            embedder_async_client = AsyncOpenAI(
+                base_url=settings.EMBEDDING_BASE_URL,
+                api_key=settings.EMBEDDING_API_KEY,
+            )
+            
+            # Create embedder client
+            embedder = OpenAIEmbedder(
+                client=embedder_async_client,
+                model=settings.EMBEDDING_MODEL
+            )
+            
+            # Initialize Graphiti with custom clients
             self.client = Graphiti(
                 settings.NEO4J_URI,
                 settings.NEO4J_USER,
-                settings.NEO4J_PASSWORD
+                settings.NEO4J_PASSWORD,
+                llm_client=llm_client,
+                embedder=embedder
             )
+            
             logger.info(f"Graphiti client initialized with Neo4j at {settings.NEO4J_URI}")
+            logger.info(f"Using LLM: {settings.LLM_MODEL} at {settings.LLM_BASE_URL}")
+            logger.info(f"Using Embedder: {settings.EMBEDDING_MODEL} at {settings.EMBEDDING_BASE_URL}")
+            
         except Exception as e:
             logger.error(f"Failed to initialize Graphiti client: {e}")
             raise
