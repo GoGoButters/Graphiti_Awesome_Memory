@@ -11,6 +11,14 @@ A production-ready dev setup for a Graphiti memory platform, featuring a FastAPI
 - **Frontend**: React Admin UI for visualization and management.
 - **Redis**: Message broker and cache.
 
+## Features
+
+- **Episodic Memory**: Store and retrieve user memories with temporal context.
+- **Graph Visualization**: Interactive 3D knowledge graph with degree-based node coloring (Red=Top1, Yellow=Top2, Green=Top3, Blue=Others).
+- **Admin Dashboard**: View user statistics, manage memories, and monitor system health.
+- **Background Processing**: Async task queue for heavy operations.
+- **Secure**: API Key authentication for API, JWT for Admin UI.
+
 ## Getting Started
 
 ### Prerequisites
@@ -75,7 +83,7 @@ A production-ready dev setup for a Graphiti memory platform, featuring a FastAPI
 
 ### Append Memory
 ```bash
-curl -X POST http://localhost:8000/memory/append \
+curl -X POST http://<VM_IP>:8000/memory/append \
   -H "Content-Type: application/json" \
   -H "X-API-KEY: adapter-secret-api-key" \
   -d '{"user_id":"user123","text":"My name is Alice. I like robotics.","role":"user","metadata":{"source":"n8n"}}'
@@ -83,7 +91,7 @@ curl -X POST http://localhost:8000/memory/append \
 
 ### Query Memory
 ```bash
-curl -X POST http://localhost:8000/memory/query \
+curl -X POST http://<VM_IP>:8000/memory/query \
   -H "Content-Type: application/json" \
   -H "X-API-KEY: adapter-secret-api-key" \
   -d '{"user_id":"user123","query":"What does Alice like?","limit":5}'
@@ -118,30 +126,6 @@ systemctl status docker
 ```
 
 ### 2. Clone & Configure
-
-```bash
-# Clone the repository
-git clone https://github.com/GoGoButters/Graphiti_n8n_Agent.git
-cd Graphiti_n8n_Agent
-
-# Edit configuration with your actual API keys and passwords
-nano config.yml
-```
-
-**Important:** Update the following in `config.yml`:
-- `llm.api_key` - Your LLM API key
-- `embeddings.api_key` - Your embeddings API key  
-- `reranker.api_key` - Your reranker API key
-- `neo4j.password` - Choose a secure password for Neo4j
-- `adapter.api_key` - Choose a secure API key for the adapter
-- `adapter.jwt_secret` - Choose a strong JWT secret
-- `security.admin_password` - Choose a secure admin password
-
-### 3. Start the Platform
-
-```bash
-# Generate environment files from config.yml
-bash scripts/generate_envs.sh
 
 # Start all services
 docker compose up -d --build
