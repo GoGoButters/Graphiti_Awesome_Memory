@@ -17,6 +17,52 @@ from app.models.schemas import MemoryHit
 
 logger = logging.getLogger(__name__)
 
+# Global monkey patch for json.loads to clean LLM responses
+import json
+import re
+
+_original_json_loads = json.loads
+
+def _patched_json_loads(s, *args, **kwargs):
+    """Patched json.loads that cleans markdown and extracts JSON before parsing"""
+    if isinstance(s, str):
+        original_s = s
+        
+        # 1. Strip markdown code blocks
+        if "```" in s:
+            match = re.search(r"```(?:\w+)?\s*(.*?)```", s, re.DOTALL)
+            if match:
+                s = match.group(1).strip()
+            else:
+                s = s.replace("```json", "").replace("```", "").strip()
+        
+        # 2. Extract JSON structure
+        first_brace = s.find('{')
+        first_bracket = s.find('[')
+        
+        start_idx = -1
+        end_char = ''
+        
+        if first_brace != -1 and (first_bracket == -1 or first_brace < first_bracket):
+            start_idx = first_brace
+            end_char = '}'
+        elif first_bracket != -1:
+            start_idx = first_bracket
+            end_char = ']'
+            
+        if start_idx != -1:
+            end_idx = s.rfind(end_char)
+            if end_idx != -1 and end_idx > start_idx:
+                s = s[start_idx:end_idx+1]
+        
+        if s != original_s:
+            logger.info(f"json.loads patch: cleaned input")
+    
+    return _original_json_loads(s, *args, **kwargs)
+
+json.loads = _patched_json_loads
+
+
 
 class GraphitiWrapper:
     """
