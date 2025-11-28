@@ -127,6 +127,32 @@ systemctl status docker
 
 ### 2. Clone & Configure
 
+```bash
+# Clone the repository
+git clone https://github.com/GoGoButters/Graphiti_n8n_Agent.git
+cd Graphiti_n8n_Agent
+
+# Edit configuration with your actual API keys and passwords
+nano config.yml
+```
+
+**Important:** Update the following in `config.yml`:
+- `app.base_url` - Set to `http://<VM_IP>:8000` (e.g., `http://192.168.1.100:8000`)
+- `app.admin_frontend_url` - Set to `http://<VM_IP>:3000`
+- `llm.api_key` - Your LLM API key
+- `embeddings.api_key` - Your embeddings API key
+- `reranker.api_key` - Your reranker API key
+- `neo4j.password` - Choose a secure password for Neo4j
+- `adapter.api_key` - Choose a secure API key for the adapter
+- `adapter.jwt_secret` - Choose a strong JWT secret
+- `security.admin_password` - Choose a secure admin password
+
+### 3. Start the Platform
+
+```bash
+# Generate environment files from config.yml
+bash scripts/generate_envs.sh
+
 # Start all services
 docker compose up -d --build
 ```
