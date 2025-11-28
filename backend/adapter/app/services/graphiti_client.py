@@ -153,9 +153,12 @@ class GraphitiWrapper:
                                         # Try to parse to check structure
                                         parsed = json.loads(content)
                                         if isinstance(parsed, list):
-                                            logger.info("Fixing JSON: List found, wrapping in 'entities'")
-                                            # Wrap list in object with 'entities' key (common default)
-                                            content = json.dumps({"entities": parsed})
+                                            logger.info("Fixing JSON: List found, wrapping in 'extracted_entities'")
+                                            content = json.dumps({"extracted_entities": parsed})
+                                        elif isinstance(parsed, dict) and "entities" in parsed:
+                                            logger.info("Fixing JSON: Renaming 'entities' to 'extracted_entities'")
+                                            parsed["extracted_entities"] = parsed.pop("entities")
+                                            content = json.dumps(parsed)
                                     except json.JSONDecodeError:
                                         pass
                                     
@@ -214,8 +217,12 @@ class GraphitiWrapper:
                                         try:
                                             parsed = json.loads(content)
                                             if isinstance(parsed, list):
-                                                logger.info("Fixing JSON: List found, wrapping in 'entities'")
-                                                content = json.dumps({"entities": parsed})
+                                                logger.info("Fixing JSON: List found, wrapping in 'extracted_entities'")
+                                                content = json.dumps({"extracted_entities": parsed})
+                                            elif isinstance(parsed, dict) and "entities" in parsed:
+                                                logger.info("Fixing JSON: Renaming 'entities' to 'extracted_entities'")
+                                                parsed["extracted_entities"] = parsed.pop("entities")
+                                                content = json.dumps(parsed)
                                         except json.JSONDecodeError:
                                             pass
                                         
