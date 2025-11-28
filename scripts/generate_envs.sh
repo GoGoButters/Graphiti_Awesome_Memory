@@ -97,7 +97,15 @@ ADMIN_USERNAME=$ADMIN_USERNAME
 ADMIN_PASSWORD=$ADMIN_PASSWORD
 ALLOWED_ORIGINS=$ADMIN_FRONTEND_URL
 EOF
+EOF
 echo "Created .env.adapter"
+
+# .env for docker-compose
+cat > .env <<EOF
+NEO4J_USER=$NEO4J_USER
+NEO4J_PASSWORD=$NEO4J_PASSWORD
+EOF
+echo "Created .env"
 
 # .env.worker
 cp .env.adapter .env.worker
