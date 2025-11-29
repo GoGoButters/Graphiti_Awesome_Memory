@@ -631,7 +631,7 @@ class GraphitiWrapper:
             RETURN count(DISTINCT e) as episodes_deleted
             """
             
-            # Execute deletion
+            # Execute deletion by episode connection
             result = await driver.execute_query(
                 query,
                 user_prefix=f"{user_id}_",
@@ -640,7 +640,24 @@ class GraphitiWrapper:
             
             episodes_deleted = result.records[0]["episodes_deleted"] if result.records else 0
             
-            logger.info(f"Deleted {episodes_deleted} episodes and associated data for user {user_id}")
+            # Fallback: Delete by group_id if it exists (handles orphaned nodes)
+            # Graphiti often uses group_id for tenancy
+            cleanup_query = """
+            MATCH (n)
+            WHERE n.group_id = $user_id
+            DETACH DELETE n
+            RETURN count(n) as nodes_deleted
+            """
+            
+            cleanup_result = await driver.execute_query(
+                cleanup_query,
+                user_id=user_id,
+                database_="neo4j"
+            )
+            
+            nodes_deleted = cleanup_result.records[0]["nodes_deleted"] if cleanup_result.records else 0
+            
+            logger.info(f"Deleted {episodes_deleted} episodes and {nodes_deleted} orphaned nodes for user {user_id}")
             
             return True
             
