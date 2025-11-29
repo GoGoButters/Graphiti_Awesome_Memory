@@ -664,7 +664,104 @@ class GraphitiWrapper:
         except Exception as e:
             logger.error(f"Error deleting user {user_id}: {e}")
             return False
-    
+
+    async def get_user_episodes(self, user_id: str) -> list:
+        """
+        Get list of episodes for a user
+        
+        Args:
+            user_id: User identifier
+            
+        Returns:
+            List of episode dictionaries
+        """
+        try:
+            logger.info(f"Getting episodes for user: {user_id}")
+            driver = self.client.driver
+            
+            query = """
+            MATCH (e:Episodic)
+            WHERE e.name STARTS WITH $user_prefix
+            RETURN e.uuid as uuid, e.name as name, e.created_at as created_at, 
+                   e.source_description as source, e.episode_body as body
+            ORDER BY e.created_at DESC
+            """
+            
+            result = await driver.execute_query(
+                query,
+                user_prefix=f"{user_id}_",
+                database_="neo4j"
+            )
+            
+            episodes = []
+            if result.records:
+                for record in result.records:
+                    created_at = record["created_at"]
+                    if hasattr(created_at, 'iso_format'):
+                        created_at = created_at.iso_format()
+                    elif hasattr(created_at, 'to_native'):
+                        created_at = created_at.to_native()
+                        
+                    episodes.append({
+                        "uuid": record["uuid"],
+                        "name": record["name"],
+                        "created_at": str(created_at),
+                        "source": record["source"],
+                        "body": record["body"][:200] + "..." if record["body"] and len(record["body"]) > 200 else record["body"]
+                    })
+            
+            return episodes
+            
+        except Exception as e:
+            logger.error(f"Error getting episodes for user {user_id}: {e}")
+            return []
+
+    async def delete_episode(self, episode_uuid: str) -> bool:
+        """
+        Delete a specific episode and cleanup orphaned nodes
+        
+        Args:
+            episode_uuid: Episode UUID
+            
+        Returns:
+            True if successful
+        """
+        try:
+            logger.info(f"Deleting episode: {episode_uuid}")
+            driver = self.client.driver
+            
+            # Delete episode and cleanup orphaned nodes
+            query = """
+            MATCH (e:Episodic {uuid: $uuid})
+            
+            // Collect connected nodes before deleting episode
+            OPTIONAL MATCH (e)--(n)
+            WITH e, collect(DISTINCT n) as connected_nodes
+            
+            // Delete the episode
+            DETACH DELETE e
+            
+            // Check connected nodes for orphans
+            WITH connected_nodes
+            UNWIND connected_nodes as n
+            MATCH (n)
+            WHERE NOT (n)--()
+            DETACH DELETE n
+            """
+            
+            await driver.execute_query(
+                query,
+                uuid=episode_uuid,
+                database_="neo4j"
+            )
+            
+            logger.info(f"Deleted episode {episode_uuid}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error deleting episode {episode_uuid}: {e}")
+            return False
+
     async def close(self):
         """Close the Graphiti client connection"""
         try:

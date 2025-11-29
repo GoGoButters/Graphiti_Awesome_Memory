@@ -69,6 +69,21 @@ async def delete_user(user_id: str, username: str = Depends(verify_jwt)):
     else:
         raise HTTPException(status_code=500, detail="Failed to delete user")
 
+@router.get("/users/{user_id}/episodes")
+async def get_user_episodes(user_id: str, username: str = Depends(verify_jwt)):
+    """Get list of episodes for a user"""
+    episodes = await graphiti_client.get_user_episodes(user_id)
+    return {"episodes": episodes, "total": len(episodes)}
+
+@router.delete("/episodes/{uuid}")
+async def delete_episode(uuid: str, username: str = Depends(verify_jwt)):
+    """Delete a specific episode"""
+    success = await graphiti_client.delete_episode(uuid)
+    if success:
+        return {"ok": True, "message": f"Episode {uuid} deleted successfully"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to delete episode")
+
 @router.post("/login")
 async def login(credentials: Dict[str, str]):
     from app.core.config import settings

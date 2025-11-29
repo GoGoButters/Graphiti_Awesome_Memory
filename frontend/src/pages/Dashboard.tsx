@@ -81,6 +81,12 @@ export default function Dashboard() {
                                 <td className="px-6 py-4 whitespace-nowrap">{user.episodes_count}</td>
                                 <td className="px-6 py-4 whitespace-nowrap space-x-3">
                                     <Link
+                                        to={`/users/${user.user_id}/episodes`}
+                                        className="text-blue-600 hover:text-blue-900"
+                                    >
+                                        View Episodes
+                                    </Link>
+                                    <Link
                                         to={`/users/${user.user_id}/graph`}
                                         className="text-blue-600 hover:text-blue-900"
                                     >
