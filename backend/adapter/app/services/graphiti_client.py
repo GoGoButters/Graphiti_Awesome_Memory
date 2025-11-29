@@ -622,14 +622,13 @@ class GraphitiWrapper:
             MATCH (e:Episodic)
             WHERE e.name STARTS WITH $user_prefix
             
-            // Optional: Match connected nodes and edges
-            OPTIONAL MATCH (e)-[r1]-(n:EntityNode)
-            OPTIONAL MATCH (n)-[r2:RELATES_TO]-(other:EntityNode)
+            // Match connected nodes
+            OPTIONAL MATCH (e)--(n:EntityNode)
             
-            // Delete edges first, then nodes, then episodes
-            DELETE r2, r1, n, e
+            // Use DETACH DELETE to automatically remove all relationships
+            DETACH DELETE e, n
             
-            RETURN count(e) as episodes_deleted
+            RETURN count(DISTINCT e) as episodes_deleted
             """
             
             # Execute deletion
