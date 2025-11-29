@@ -619,7 +619,7 @@ class GraphitiWrapper:
             # Cypher query to delete episodes and their associated data
             query = """
             // Find all episodes for this user
-            MATCH (e:EpisodeType)
+            MATCH (e:Episodic)
             WHERE e.name STARTS WITH $user_prefix
             
             // Optional: Match connected nodes and edges
