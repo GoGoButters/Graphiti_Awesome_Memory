@@ -595,6 +595,60 @@ class GraphitiWrapper:
             logger.error(f"Error generating summary: {e}")
             return f"Error generating summary: {str(e)}"
     
+    async def delete_user(self, user_id: str) -> bool:
+        """
+        Delete all data for a user from Neo4j
+        
+        Args:
+            user_id: User identifier
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            logger.info(f"Deleting all data for user: {user_id}")
+            
+            # Strategy:
+            # 1. Find and delete all episodes for this user (by name pattern)
+            # 2. Delete nodes that are only connected to these episodes
+            # 3. Delete edges that reference deleted nodes
+            
+            # Get Neo4j driver from graphiti client
+            driver = self.client.driver
+            
+            # Cypher query to delete episodes and their associated data
+            query = """
+            // Find all episodes for this user
+            MATCH (e:EpisodeType)
+            WHERE e.name STARTS WITH $user_prefix
+            
+            // Optional: Match connected nodes and edges
+            OPTIONAL MATCH (e)-[r1]-(n:EntityNode)
+            OPTIONAL MATCH (n)-[r2:RELATES_TO]-(other:EntityNode)
+            
+            // Delete edges first, then nodes, then episodes
+            DELETE r2, r1, n, e
+            
+            RETURN count(e) as episodes_deleted
+            """
+            
+            # Execute deletion
+            result = await driver.execute_query(
+                query,
+                user_prefix=f"{user_id}_",
+                database_="neo4j"
+            )
+            
+            episodes_deleted = result.records[0]["episodes_deleted"] if result.records else 0
+            
+            logger.info(f"Deleted {episodes_deleted} episodes and associated data for user {user_id}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error deleting user {user_id}: {e}")
+            return False
+    
     async def close(self):
         """Close the Graphiti client connection"""
         try:

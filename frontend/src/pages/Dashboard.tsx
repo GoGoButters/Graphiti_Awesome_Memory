@@ -1,13 +1,57 @@
 import { useEffect, useState } from 'react';
 import apiClient from '../api/apiClient';
 import { Link } from 'react-router-dom';
+import { Trash2 } from 'lucide-react';
 
 export default function Dashboard() {
     const [stats, setStats] = useState<any>(null);
+    const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
+
+    const fetchUsers = () => {
+        apiClient.get('/admin/users').then(res => setStats(res.data));
+    };
 
     useEffect(() => {
-        apiClient.get('/admin/users').then(res => setStats(res.data));
+        fetchUsers();
     }, []);
+
+    const handleDelete = async (userId: string) => {
+        // Confirmation dialog
+        const confirmed = window.confirm(
+            `Are you sure you want to delete user "${userId}"?\n\n` +
+            `This will permanently remove:\n` +
+            `• All episodes (memories)\n` +
+            `• All entities (nodes)\n` +
+            `• All relationships (edges)\n\n` +
+            `This action cannot be undone!`
+        );
+
+        if (!confirmed) return;
+
+        setDeletingUserId(userId);
+
+        try {
+            await apiClient.delete(`/admin/users/${userId}`);
+
+            // Show success message
+            alert(`User "${userId}" has been deleted successfully`);
+
+            // Optimistic update: remove from list immediately
+            setStats((prev: any) => ({
+                ...prev,
+                users: prev.users.filter((u: any) => u.user_id !== userId),
+                total: prev.total - 1
+            }));
+
+            // Refresh the list from server
+            fetchUsers();
+        } catch (error: any) {
+            console.error('Error deleting user:', error);
+            alert(`Failed to delete user "${userId}": ${error.response?.data?.detail || error.message}`);
+        } finally {
+            setDeletingUserId(null);
+        }
+    };
 
     return (
         <div className="p-8">
@@ -35,8 +79,22 @@ export default function Dashboard() {
                             <tr key={user.user_id}>
                                 <td className="px-6 py-4 whitespace-nowrap">{user.user_id}</td>
                                 <td className="px-6 py-4 whitespace-nowrap">{user.episodes_count}</td>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                    <Link to={`/users/${user.user_id}/graph`} className="text-blue-600 hover:text-blue-900">View Graph</Link>
+                                <td className="px-6 py-4 whitespace-nowrap space-x-3">
+                                    <Link
+                                        to={`/users/${user.user_id}/graph`}
+                                        className="text-blue-600 hover:text-blue-900"
+                                    >
+                                        View Graph
+                                    </Link>
+                                    <button
+                                        onClick={() => handleDelete(user.user_id)}
+                                        disabled={deletingUserId === user.user_id}
+                                        className="text-red-600 hover:text-red-900 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1"
+                                        title="Delete user"
+                                    >
+                                        <Trash2 size={16} />
+                                        {deletingUserId === user.user_id ? 'Deleting...' : 'Delete'}
+                                    </button>
                                 </td>
                             </tr>
                         ))}

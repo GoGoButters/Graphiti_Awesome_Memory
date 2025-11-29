@@ -52,6 +52,23 @@ async def get_users(username: str = Depends(verify_jwt)):
 async def get_user_graph(user_id: str, depth: int = 2, username: str = Depends(verify_jwt)):
     return await graphiti_client.get_user_graph(user_id)
 
+@router.delete("/users/{user_id}")
+async def delete_user(user_id: str, username: str = Depends(verify_jwt)):
+    """
+    Delete user and all associated data from Neo4j
+    
+    This will permanently delete:
+    - All episodes for this user
+    - All entities (nodes)
+    - All relationships (edges)
+    """
+    success = await graphiti_client.delete_user(user_id)
+    
+    if success:
+        return {"ok": True, "message": f"User {user_id} and all associated data deleted successfully"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to delete user")
+
 @router.post("/login")
 async def login(credentials: Dict[str, str]):
     from app.core.config import settings
