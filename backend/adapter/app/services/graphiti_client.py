@@ -623,7 +623,7 @@ class GraphitiWrapper:
             WHERE e.name STARTS WITH $user_prefix
             
             // Match connected nodes
-            OPTIONAL MATCH (e)--(n:EntityNode)
+            OPTIONAL MATCH (e)--(n)
             
             // Use DETACH DELETE to automatically remove all relationships
             DETACH DELETE e, n
