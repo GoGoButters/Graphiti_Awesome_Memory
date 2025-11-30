@@ -175,7 +175,6 @@ class GraphitiWrapper:
                                     elif start_bracket != -1:
                                         start_idx = start_bracket
                                         end_char = ']'
-                                        
                                     if start_idx != -1:
                                         end_idx = content.rfind(end_char)
                                         if end_idx != -1 and end_idx > start_idx:
@@ -187,7 +186,13 @@ class GraphitiWrapper:
                                         parsed = json.loads(content)
                                         modified = False
                                         
-                                        if isinstance(parsed, list):
+                                        # If parsed is just a string, it's likely a summary that needs wrapping
+                                        if isinstance(parsed, str):
+                                            logger.info("Fixing JSON: Parsed content is a string, wrapping in 'summary'")
+                                            parsed = {"summary": parsed}
+                                            modified = True
+                                        
+                                        elif isinstance(parsed, list):
                                             # Detect if this is a list of edges or entities
                                             # Edges have source_entity_id and target_entity_id
                                             # Entities have name or entity_name
