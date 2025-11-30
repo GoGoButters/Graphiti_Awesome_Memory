@@ -266,7 +266,24 @@ class GraphitiWrapper:
                                             content = json.dumps(parsed)
                                             
                                     except json.JSONDecodeError:
-                                        # If JSON parsing fails, check if it's plain text that needs wrapping
+                                        # Attempt to repair truncated JSON
+                                        # LLMs often cut off at max tokens, leaving unclosed lists/objects
+                                        if content.strip().startswith('{') or content.strip().startswith('['):
+                                            repaired = False
+                                            # Common suffixes to try
+                                            suffixes = ["}", "]", "}}", "]}", "}]", "}}}", "}}]", "}]}", "]}}", "]}]", "]]}", "]]]", '"}', '"]', '"]}', '"]}]']
+                                            for suffix in suffixes:
+                                                try:
+                                                    temp_content = content + suffix
+                                                    json.loads(temp_content)
+                                                    content = temp_content
+                                                    logger.info(f"Fixing JSON: Repaired truncated JSON with suffix '{suffix}'")
+                                                    repaired = True
+                                                    break
+                                                except json.JSONDecodeError:
+                                                    continue
+                                        
+                                        # If JSON parsing fails (and repair failed), check if it's plain text that needs wrapping
                                         if content and not content.strip().startswith('{') and not content.strip().startswith('['):
                                             # Wrap plain text in {"summary": "..."} for EntitySummary
                                             # Must also include empty extracted_entities to satisfy Pydantic model
@@ -399,6 +416,21 @@ class GraphitiWrapper:
                                                 content = json.dumps(parsed)
                                                 
                                         except json.JSONDecodeError:
+                                            # Attempt to repair truncated JSON
+                                            if content.strip().startswith('{') or content.strip().startswith('['):
+                                                repaired = False
+                                                suffixes = ["}", "]", "}}", "]}", "}]", "}}}", "}}]", "}]}", "]}}", "]}]", "]]}", "]]]", '"}', '"]', '"]}', '"]}]']
+                                                for suffix in suffixes:
+                                                    try:
+                                                        temp_content = content + suffix
+                                                        json.loads(temp_content)
+                                                        content = temp_content
+                                                        logger.info(f"Fixing JSON: Repaired truncated JSON with suffix '{suffix}'")
+                                                        repaired = True
+                                                        break
+                                                    except json.JSONDecodeError:
+                                                        continue
+
                                             # If JSON parsing fails, check if it's plain text that needs wrapping
                                             if content and not content.strip().startswith('{') and not content.strip().startswith('['):
                                                 # Wrap plain text in {"summary": "..."} for EntitySummary
