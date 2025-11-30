@@ -220,20 +220,11 @@ class GraphitiWrapper:
                                             # Detect if this is a list of edges or entities
                                             # Edges have source_entity_id and target_entity_id
                                             # Entities have name or entity_name
-                                            if parsed and isinstance(parsed[0], dict):
-                                                first_item = parsed[0]
-                                                if "source_entity_id" in first_item and "target_entity_id" in first_item:
-                                                    logger.info("Fixing JSON: List of edges found, wrapping in 'edges'")
-                                                    parsed = {"edges": parsed}
-                                                    modified = True
-                                                else:
-                                                    logger.info("Fixing JSON: List of entities found, wrapping in 'extracted_entities'")
-                                                    parsed = {"extracted_entities": parsed}
-                                                    modified = True
-                                            else:
-                                                # Empty list or non-dict items, default to extracted_entities
-                                                logger.info("Fixing JSON: Empty/unknown list, wrapping in 'extracted_entities'")
-                                                parsed = {"extracted_entities": parsed}
+                                                logger.info("Fixing JSON: Empty/unknown list, wrapping in both 'extracted_entities' and 'edges'")
+                                                parsed = {
+                                                    "extracted_entities": parsed,
+                                                    "edges": []
+                                                }
                                                 modified = True
                                         elif isinstance(parsed, dict) and "entities" in parsed:
                                             logger.info("Fixing JSON: Renaming 'entities' to 'extracted_entities'")
