@@ -4,7 +4,8 @@ WORKDIR /app
 COPY frontend/package.json .
 RUN npm install
 COPY frontend .
-RUN npm run build
+# Use npx to run tsc to avoid permission issues with local node_modules/.bin
+RUN npx tsc && npx vite build
 
 FROM nginx:alpine
 COPY --from=build /app/dist /usr/share/nginx/html
