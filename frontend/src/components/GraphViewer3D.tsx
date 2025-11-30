@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef, useEffect } from 'react';
 import ForceGraph3D from 'react-force-graph-3d';
 import SpriteText from 'three-spritetext';
 import * as THREE from 'three';
@@ -8,6 +8,16 @@ interface GraphViewer3DProps {
 }
 
 export default function GraphViewer3D({ elements }: GraphViewer3DProps) {
+    const fgRef = useRef<any>();
+
+    useEffect(() => {
+        if (fgRef.current) {
+            // Increase repulsion to separate nodes (default is usually around -30)
+            // Making it more negative increases repulsion
+            fgRef.current.d3Force('charge').strength(-150);
+        }
+    }, []);
+
     const graphData = useMemo(() => {
         const nodes: any[] = [];
         const links: any[] = [];
@@ -80,6 +90,7 @@ export default function GraphViewer3D({ elements }: GraphViewer3DProps) {
     return (
         <div className="w-full h-full bg-gray-900">
             <ForceGraph3D
+                ref={fgRef}
                 graphData={graphData}
                 nodeLabel="name"
                 nodeColor="color"
@@ -102,6 +113,12 @@ export default function GraphViewer3D({ elements }: GraphViewer3DProps) {
                     sprite.color = 'white';
                     sprite.textHeight = Math.max(4, node.val * 2); // Scale text with node
                     (sprite as any).position.set(0, 0, 0); // Center text
+
+                    // Ensure text is always on top and visible
+                    sprite.renderOrder = 999;
+                    sprite.material.depthTest = false;
+                    sprite.material.depthWrite = false;
+
                     group.add(sprite);
 
                     return group;
