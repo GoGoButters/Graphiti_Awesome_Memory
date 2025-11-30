@@ -592,26 +592,28 @@ class GraphitiWrapper:
                 for node in record["nodes"]:
                     nodes.append({
                         "data": {
-                            "id": node.get("uuid", str(node.id)),
-                            "label": node.get("name", "Unknown"),
-                            "summary": (node.get("summary", "")[:200] if node.get("summary") else ""),
-                            "created_at": str(node.get("created_at")) if node.get("created_at") else None,
+                            "id": node["uuid"] if "uuid" in node else str(node.id),
+                            "label": node["name"] if "name" in node else "Unknown",
+                            "summary": (node["summary"][:200] if "summary" in node and node["summary"] else ""),
+                            "created_at": str(node["created_at"]) if "created_at" in node and node["created_at"] else None,
                         }
                     })
                 
                 # Process edges
                 for edge in record["edges"]:
                     if edge:  # Skip None edges from OPTIONAL MATCH
-                        nodes_data = edge.nodes
-                        if len(nodes_data) >= 2:
-                            edges.append({
-                                "data": {
-                                    "id": edge.get("uuid", str(edge.id)),
-                                    "source": nodes_data[0].get("uuid", str(nodes_data[0].id)),
-                                    "target": nodes_data[1].get("uuid", str(nodes_data[1].id)),
-                                    "label": (edge.get("fact", "")[:100] if edge.get("fact") else ""),
-                                }
-                            })
+                        # Get source and target nodes from relationship
+                        start_node = edge.start_node
+                        end_node = edge.end_node
+                        
+                        edges.append({
+                            "data": {
+                                "id": edge["uuid"] if "uuid" in edge else str(edge.id),
+                                "source": start_node["uuid"] if "uuid" in start_node else str(start_node.id),
+                                "target": end_node["uuid"] if "uuid" in end_node else str(end_node.id),
+                                "label": (edge["fact"][:100] if "fact" in edge and edge["fact"] else ""),
+                            }
+                        })
             
             logger.info(f"Retrieved {len(nodes)} nodes and {len(edges)} edges for user {user_id}")
             
