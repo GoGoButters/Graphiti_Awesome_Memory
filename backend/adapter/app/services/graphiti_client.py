@@ -209,8 +209,11 @@ class GraphitiWrapper:
                                         
                                         # If parsed is just a string, it's likely a summary that needs wrapping
                                         if isinstance(parsed, str):
-                                            logger.info("Fixing JSON: Parsed content is a string, wrapping in 'summary'")
-                                            parsed = {"summary": parsed}
+                                            logger.info("Fixing JSON: Parsed content is a string, wrapping in 'summary' with empty entities")
+                                            parsed = {
+                                                "summary": parsed,
+                                                "extracted_entities": []
+                                            }
                                             modified = True
                                         
                                         elif isinstance(parsed, list):
@@ -266,8 +269,12 @@ class GraphitiWrapper:
                                         # If JSON parsing fails, check if it's plain text that needs wrapping
                                         if content and not content.strip().startswith('{') and not content.strip().startswith('['):
                                             # Wrap plain text in {"summary": "..."} for EntitySummary
-                                            logger.info("Fixing JSON: Wrapping plain text in summary object")
-                                            content = json.dumps({"summary": content.strip()})
+                                            # Must also include empty extracted_entities to satisfy Pydantic model
+                                            logger.info("Fixing JSON: Wrapping plain text in summary object with empty entities")
+                                            content = json.dumps({
+                                                "summary": content.strip(),
+                                                "extracted_entities": []
+                                            })
                                     
                                     if content != original_content:
                                         logger.info(f"LLM Cleaned Response (HTTP): {content}")
@@ -395,8 +402,12 @@ class GraphitiWrapper:
                                             # If JSON parsing fails, check if it's plain text that needs wrapping
                                             if content and not content.strip().startswith('{') and not content.strip().startswith('['):
                                                 # Wrap plain text in {"summary": "..."} for EntitySummary
-                                                logger.info("Fixing JSON: Wrapping plain text in summary object")
-                                                content = json.dumps({"summary": content.strip()})
+                                                # Must also include empty extracted_entities to satisfy Pydantic model
+                                                logger.info("Fixing JSON: Wrapping plain text in summary object with empty entities")
+                                                content = json.dumps({
+                                                    "summary": content.strip(),
+                                                    "extracted_entities": []
+                                                })
                                         
                                         if content != original_content:
                                             logger.info(f"LLM Cleaned Response (HTTP, non-standard): {content}")
