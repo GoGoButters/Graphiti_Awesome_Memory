@@ -594,7 +594,12 @@ class GraphitiWrapper:
             
             RETURN 
                 collect(DISTINCT node) as nodes,
-                collect(DISTINCT r) as edges
+                collect(DISTINCT {
+                    uuid: r.uuid,
+                    source: startNode(r).uuid,
+                    target: endNode(r).uuid,
+                    fact: r.fact
+                }) as edges
             """
             
             result = await driver.execute_query(
@@ -623,17 +628,13 @@ class GraphitiWrapper:
                 
                 # Process edges
                 for edge in record["edges"]:
-                    if edge:  # Skip None edges from OPTIONAL MATCH
-                        # Get source and target nodes from relationship
-                        start_node = edge.start_node
-                        end_node = edge.end_node
-                        
+                    if edge and edge.get("source") and edge.get("target"):  # Ensure source/target exist
                         edges.append({
                             "data": {
-                                "id": edge["uuid"] if "uuid" in edge else str(edge.id),
-                                "source": start_node["uuid"] if "uuid" in start_node else str(start_node.id),
-                                "target": end_node["uuid"] if "uuid" in end_node else str(end_node.id),
-                                "label": (edge["fact"][:100] if "fact" in edge and edge["fact"] else ""),
+                                "id": edge["uuid"] if edge.get("uuid") else f"{edge['source']}_{edge['target']}",
+                                "source": edge["source"],
+                                "target": edge["target"],
+                                "label": (edge["fact"][:100] if edge.get("fact") else ""),
                             }
                         })
             
