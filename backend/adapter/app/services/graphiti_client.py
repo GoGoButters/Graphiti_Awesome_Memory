@@ -474,13 +474,14 @@ class GraphitiWrapper:
             
             logger.info(f"Adding episode for user {user_id}: {text[:50]}...")
             
-            # Add episode to Graphiti
+            # Add episode to Graphiti with group_id for user isolation
             await self.client.add_episode(
                 name=episode_name,
                 episode_body=text,
                 source=EpisodeType.text,
                 source_description=f"{source_description} ({role})",
-                reference_time=datetime.now(timezone.utc)
+                reference_time=datetime.now(timezone.utc),
+                group_id=user_id  # Critical: isolate data by user
             )
             
             logger.info(f"Successfully added episode: {episode_name}")
@@ -555,40 +556,63 @@ class GraphitiWrapper:
         try:
             logger.info(f"Getting graph for user {user_id}")
             
-            # Search for nodes related to this user
-            node_search_config = NODE_HYBRID_SEARCH_RRF.model_copy(deep=True)
-            node_search_config.limit = 100
+            # Get Neo4j driver from Graphiti client
+            driver = self.client.driver
             
-            search_results = await self.client._search(
-                query=user_id,
-                config=node_search_config
+            # Query nodes and edges filtered by group_id
+            query = """
+            // Get all nodes for this user by group_id
+            MATCH (n:EntityNode)
+            WHERE n.group_id = $group_id
+            
+            // Get edges between these nodes
+            OPTIONAL MATCH (n)-[r:RELATES_TO]-(m:EntityNode)
+            WHERE m.group_id = $group_id
+            
+            RETURN 
+                collect(DISTINCT n) as nodes,
+                collect(DISTINCT r) as edges
+            """
+            
+            result = await driver.execute_query(
+                query,
+                group_id=user_id,
+                database_="neo4j"
             )
             
             # Convert to Cytoscape.js format
             nodes = []
             edges = []
             
-            for node in search_results.nodes:
-                nodes.append({
-                    "data": {
-                        "id": node.uuid,
-                        "label": node.name,
-                        "summary": node.summary[:200] if node.summary else "",
-                        "created_at": str(node.created_at) if node.created_at else None,
-                    }
-                })
+            if result.records:
+                record = result.records[0]
+                
+                # Process nodes
+                for node in record["nodes"]:
+                    nodes.append({
+                        "data": {
+                            "id": node.get("uuid", str(node.id)),
+                            "label": node.get("name", "Unknown"),
+                            "summary": (node.get("summary", "")[:200] if node.get("summary") else ""),
+                            "created_at": str(node.get("created_at")) if node.get("created_at") else None,
+                        }
+                    })
+                
+                # Process edges
+                for edge in record["edges"]:
+                    if edge:  # Skip None edges from OPTIONAL MATCH
+                        nodes_data = edge.nodes
+                        if len(nodes_data) >= 2:
+                            edges.append({
+                                "data": {
+                                    "id": edge.get("uuid", str(edge.id)),
+                                    "source": nodes_data[0].get("uuid", str(nodes_data[0].id)),
+                                    "target": nodes_data[1].get("uuid", str(nodes_data[1].id)),
+                                    "label": (edge.get("fact", "")[:100] if edge.get("fact") else ""),
+                                }
+                            })
             
-            for edge in search_results.edges:
-                edges.append({
-                    "data": {
-                        "id": edge.uuid,
-                        "source": edge.source_node_uuid,
-                        "target": edge.target_node_uuid,
-                        "label": edge.fact[:100] if edge.fact else "",
-                    }
-                })
-            
-            logger.info(f"Retrieved {len(nodes)} nodes and {len(edges)} edges")
+            logger.info(f"Retrieved {len(nodes)} nodes and {len(edges)} edges for user {user_id}")
             
             return {
                 "nodes": nodes,
