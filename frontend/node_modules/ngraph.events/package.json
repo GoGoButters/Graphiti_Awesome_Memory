@@ -1,0 +1,39 @@
+{
+  "name": "ngraph.events",
+  "version": "1.4.0",
+  "description": "Basic events support for ngraph.js",
+  "type": "module",
+  "main": "dist/ngraph.events.cjs",
+  "module": "index.js",
+  "types": "index.d.ts",
+  "scripts": {
+    "build": "vite build",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/anvaka/ngraph.events.git"
+  },
+  "keywords": [
+    "ngraph",
+    "ngraphjs"
+  ],
+  "author": "Andrei Kashcha",
+  "license": "BSD-3-Clause",
+  "bugs": {
+    "url": "https://github.com/anvaka/ngraph.events/issues"
+  },
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js",
+      "require": "./dist/ngraph.events.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "devDependencies": {
+    "vite": "^7.1.4",
+    "vitest": "^3.2.4"
+  }
+}

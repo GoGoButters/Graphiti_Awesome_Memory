@@ -101,7 +101,7 @@ export default function GraphViewer3D({ elements }: GraphViewer3DProps) {
                     const sprite = new SpriteText(node.name);
                     sprite.color = 'white';
                     sprite.textHeight = Math.max(4, node.val * 2); // Scale text with node
-                    sprite.position.set(0, 0, 0); // Center text
+                    (sprite as any).position.set(0, 0, 0); // Center text
                     group.add(sprite);
 
                     return group;
