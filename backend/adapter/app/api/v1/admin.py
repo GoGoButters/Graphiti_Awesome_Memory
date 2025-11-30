@@ -70,9 +70,19 @@ async def delete_user(user_id: str, username: str = Depends(verify_jwt)):
         raise HTTPException(status_code=500, detail="Failed to delete user")
 
 @router.get("/users/{user_id}/episodes")
-async def get_user_episodes(user_id: str, username: str = Depends(verify_jwt)):
-    """Get list of episodes for a user"""
-    episodes = await graphiti_client.get_user_episodes(user_id)
+async def get_user_episodes(
+    user_id: str, 
+    limit: int = None,
+    username: str = Depends(verify_jwt)
+):
+    """
+    Get list of episodes for a user
+    
+    Args:
+        user_id: User identifier
+        limit: Optional limit on number of episodes to return (most recent first)
+    """
+    episodes = await graphiti_client.get_user_episodes(user_id, limit=limit)
     return {"episodes": episodes, "total": len(episodes)}
 
 @router.delete("/episodes/{uuid}")

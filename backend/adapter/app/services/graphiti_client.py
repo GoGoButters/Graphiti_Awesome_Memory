@@ -802,20 +802,22 @@ class GraphitiWrapper:
             logger.error(f"Error deleting user {user_id}: {e}")
             return False
 
-    async def get_user_episodes(self, user_id: str) -> list:
+    async def get_user_episodes(self, user_id: str, limit: int = None) -> list:
         """
         Get list of episodes for a user
         
         Args:
             user_id: User identifier
+            limit: Optional limit on number of episodes to return
             
         Returns:
             List of episode dictionaries
         """
         try:
-            logger.info(f"Getting episodes for user: {user_id}")
+            logger.info(f"Getting episodes for user: {user_id}" + (f" (limit: {limit})" if limit else ""))
             driver = self.client.driver
             
+            # Build query with optional LIMIT clause
             query = """
             MATCH (e:Episodic)
             WHERE e.name STARTS WITH $user_prefix
@@ -823,6 +825,9 @@ class GraphitiWrapper:
                    e.source_description as source, e.episode_body as body
             ORDER BY e.created_at DESC
             """
+            
+            if limit is not None and limit > 0:
+                query += f"\nLIMIT {limit}"
             
             result = await driver.execute_query(
                 query,
