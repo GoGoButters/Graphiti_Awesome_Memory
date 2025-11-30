@@ -280,96 +280,97 @@ class GraphitiWrapper:
                                         logger.error(f"Failed to extract content from output: {e}")
                                         return response
                                 
-                                if content:
-                                    logger.info(f"LLM Raw Response (HTTP, non-standard): {content}")
-                                    original_content = content
-                                    
-                                    # Clean markdown
-                                    if "```" in content:
-                                        match = re.search(r"```(?:\w+)?\s*(.*?)```", content, re.DOTALL)
-                                        if match:
-                                            content = match.group(1).strip()
-                                        else:
-                                            content = content.replace("```json", "").replace("```", "").strip()
-                                    
-                                    # Extract JSON
-                                    start_brace = content.find('{')
-                                    start_bracket = content.find('[')
-                                    
-                                    start_idx = -1
-                                    end_char = ''
-                                    
-                                    if start_brace != -1 and (start_bracket == -1 or start_brace < start_bracket):
-                                        start_idx = start_brace
-                                        end_char = '}'
-                                    elif start_bracket != -1:
-                                        start_idx = start_bracket
-                                        end_char = ']'
+                                try:
+                                    if content:
+                                        logger.info(f"LLM Raw Response (HTTP, non-standard): {content}")
+                                        original_content = content
                                         
-                                    if start_idx != -1:
-                                        end_idx = content.rfind(end_char)
-                                        if end_idx != -1 and end_idx > start_idx:
-                                            content = content[start_idx:end_idx+1]
-                                    
-                                    # Fix List vs Object
-                                    try:
-                                        parsed = json.loads(content)
-                                        modified = False
+                                        # Clean markdown
+                                        if "```" in content:
+                                            match = re.search(r"```(?:\w+)?\s*(.*?)```", content, re.DOTALL)
+                                            if match:
+                                                content = match.group(1).strip()
+                                            else:
+                                                content = content.replace("```json", "").replace("```", "").strip()
                                         
-                                        if isinstance(parsed, list):
-                                            logger.info("Fixing JSON: List found, wrapping in 'extracted_entities'")
-                                            parsed = {"extracted_entities": parsed}
-                                            modified = True
-                                        elif isinstance(parsed, dict) and "entities" in parsed:
-                                            logger.info("Fixing JSON: Renaming 'entities' to 'extracted_entities'")
-                                            parsed["extracted_entities"] = parsed.pop("entities")
-                                            modified = True
+                                        # Extract JSON
+                                        start_brace = content.find('{')
+                                        start_bracket = content.find('[')
                                         
-                                        # Fix entity_name -> name in extracted_entities
-                                        if isinstance(parsed, dict) and "extracted_entities" in parsed:
-                                            for entity in parsed["extracted_entities"]:
-                                                if isinstance(entity, dict) and "entity_name" in entity:
-                                                    entity["name"] = entity.pop("entity_name")
-                                                    modified = True
+                                        start_idx = -1
+                                        end_char = ''
+                                        
+                                        if start_brace != -1 and (start_bracket == -1 or start_brace < start_bracket):
+                                            start_idx = start_brace
+                                            end_char = '}'
+                                        elif start_bracket != -1:
+                                            start_idx = start_bracket
+                                            end_char = ']'
                                             
-                                            # Fix NodeResolutions: extracted_entities -> entity_resolutions
-                                            entities = parsed["extracted_entities"]
-                                            if entities and isinstance(entities, list) and len(entities) > 0:
-                                                if isinstance(entities[0], dict) and "duplicates" in entities[0]:
-                                                    parsed["entity_resolutions"] = parsed.pop("extracted_entities")
-                                                    logger.info("Fixing JSON: Renamed 'extracted_entities' to 'entity_resolutions' (detected resolution format)")
-                                                    modified = True
+                                        if start_idx != -1:
+                                            end_idx = content.rfind(end_char)
+                                            if end_idx != -1 and end_idx > start_idx:
+                                                content = content[start_idx:end_idx+1]
                                         
-                                        # Fix extracted_edges -> edges
-                                        if isinstance(parsed, dict) and "extracted_edges" in parsed:
-                                            parsed["edges"] = parsed.pop("extracted_edges")
-                                            logger.info("Fixing JSON: Renamed 'extracted_edges' to 'edges'")
-                                            modified = True
-                                        
-                                        if modified:
-                                            content = json.dumps(parsed)
+                                        # Fix List vs Object
+                                        try:
+                                            parsed = json.loads(content)
+                                            modified = False
                                             
-                                    except json.JSONDecodeError:
-                                        # If JSON parsing fails, check if it's plain text that needs wrapping
-                                        if content and not content.strip().startswith('{') and not content.strip().startswith('['):
-                                            # Wrap plain text in {"summary": "..."} for EntitySummary
-                                            logger.info("Fixing JSON: Wrapping plain text in summary object")
-                                            content = json.dumps({"summary": content.strip()})
-                                    
-                                    if content != original_content:
-                                        logger.info(f"LLM Cleaned Response (HTTP, non-standard): {content}")
-                                        data["output"][output_index]["content"][0]["text"] = content
+                                            if isinstance(parsed, list):
+                                                logger.info("Fixing JSON: List found, wrapping in 'extracted_entities'")
+                                                parsed = {"extracted_entities": parsed}
+                                                modified = True
+                                            elif isinstance(parsed, dict) and "entities" in parsed:
+                                                logger.info("Fixing JSON: Renaming 'entities' to 'extracted_entities'")
+                                                parsed["extracted_entities"] = parsed.pop("entities")
+                                                modified = True
+                                            
+                                            # Fix entity_name -> name in extracted_entities
+                                            if isinstance(parsed, dict) and "extracted_entities" in parsed:
+                                                for entity in parsed["extracted_entities"]:
+                                                    if isinstance(entity, dict) and "entity_name" in entity:
+                                                        entity["name"] = entity.pop("entity_name")
+                                                        modified = True
+                                                
+                                                # Fix NodeResolutions: extracted_entities -> entity_resolutions
+                                                entities = parsed["extracted_entities"]
+                                                if entities and isinstance(entities, list) and len(entities) > 0:
+                                                    if isinstance(entities[0], dict) and "duplicates" in entities[0]:
+                                                        parsed["entity_resolutions"] = parsed.pop("extracted_entities")
+                                                        logger.info("Fixing JSON: Renamed 'extracted_entities' to 'entity_resolutions' (detected resolution format)")
+                                                        modified = True
+                                            
+                                            # Fix extracted_edges -> edges
+                                            if isinstance(parsed, dict) and "extracted_edges" in parsed:
+                                                parsed["edges"] = parsed.pop("extracted_edges")
+                                                logger.info("Fixing JSON: Renamed 'extracted_edges' to 'edges'")
+                                                modified = True
+                                            
+                                            if modified:
+                                                content = json.dumps(parsed)
+                                                
+                                        except json.JSONDecodeError:
+                                            # If JSON parsing fails, check if it's plain text that needs wrapping
+                                            if content and not content.strip().startswith('{') and not content.strip().startswith('['):
+                                                # Wrap plain text in {"summary": "..."} for EntitySummary
+                                                logger.info("Fixing JSON: Wrapping plain text in summary object")
+                                                content = json.dumps({"summary": content.strip()})
                                         
-                                        # Re-encode response
-                                        new_body = json.dumps(data).encode('utf-8')
-                                        
-                                        return httpx.Response(
-                                            status_code=response.status_code,
-                                            headers=response.headers,
-                                            content=new_body,
-                                            request=request,
-                                            extensions=response.extensions
-                                        )
+                                        if content != original_content:
+                                            logger.info(f"LLM Cleaned Response (HTTP, non-standard): {content}")
+                                            data["output"][output_index]["content"][0]["text"] = content
+                                            
+                                            # Re-encode response
+                                            new_body = json.dumps(data).encode('utf-8')
+                                            
+                                            return httpx.Response(
+                                                status_code=response.status_code,
+                                                headers=response.headers,
+                                                content=new_body,
+                                                request=request,
+                                                extensions=response.extensions
+                                            )
                                 except (KeyError, IndexError, TypeError) as e:
                                     logger.error(f"Error parsing non-standard response: {e}")
                         except Exception as e:
