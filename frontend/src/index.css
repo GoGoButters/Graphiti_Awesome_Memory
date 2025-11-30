@@ -9,4 +9,6 @@
 body {
   margin: 0;
   min-height: 100vh;
+  @apply bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100;
+  transition: background-color 0.3s, color 0.3s;
 }

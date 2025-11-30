@@ -1,4 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { ThemeProvider } from './contexts/ThemeContext';
 import Dashboard from './pages/Dashboard';
 import UserGraph from './pages/UserGraph';
 import UserEpisodes from './pages/UserEpisodes';
@@ -11,28 +12,30 @@ const PrivateRoute = ({ children }: { children: JSX.Element }) => {
 
 function App() {
     return (
-        <Router>
-            <div className="min-h-screen bg-gray-50">
-                <Routes>
-                    <Route path="/login" element={<Login />} />
-                    <Route path="/" element={
-                        <PrivateRoute>
-                            <Dashboard />
-                        </PrivateRoute>
-                    } />
-                    <Route path="/users/:userId/graph" element={
-                        <PrivateRoute>
-                            <UserGraph />
-                        </PrivateRoute>
-                    } />
-                    <Route path="/users/:userId/episodes" element={
-                        <PrivateRoute>
-                            <UserEpisodes />
-                        </PrivateRoute>
-                    } />
-                </Routes>
-            </div>
-        </Router>
+        <ThemeProvider>
+            <Router>
+                <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors">
+                    <Routes>
+                        <Route path="/login" element={<Login />} />
+                        <Route path="/" element={
+                            <PrivateRoute>
+                                <Dashboard />
+                            </PrivateRoute>
+                        } />
+                        <Route path="/users/:userId/graph" element={
+                            <PrivateRoute>
+                                <UserGraph />
+                            </PrivateRoute>
+                        } />
+                        <Route path="/users/:userId/episodes" element={
+                            <PrivateRoute>
+                                <UserEpisodes />
+                            </PrivateRoute>
+                        } />
+                    </Routes>
+                </div>
+            </Router>
+        </ThemeProvider>
     );
 }
 
