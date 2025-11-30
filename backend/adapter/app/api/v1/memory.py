@@ -74,3 +74,23 @@ async def summarize_memory(
 ):
     # Placeholder for summary
     return MemorySummaryResponse(summary="Not implemented yet")
+
+@router.get("/users/{user_id}/episodes")
+async def get_user_episodes(
+    user_id: str,
+    limit: int = None,
+    api_key: str = Depends(get_api_key)
+):
+    """
+    Get list of episodes for a user (public endpoint with API key)
+    
+    Args:
+        user_id: User identifier
+        limit: Optional limit on number of episodes to return (most recent first)
+    """
+    try:
+        episodes = await graphiti_client.get_user_episodes(user_id, limit=limit)
+        return {"episodes": episodes, "total": len(episodes)}
+    except Exception as e:
+        logger.error(f"Error getting episodes for user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
