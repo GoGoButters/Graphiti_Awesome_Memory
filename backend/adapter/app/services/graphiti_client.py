@@ -818,11 +818,13 @@ class GraphitiWrapper:
             driver = self.client.driver
             
             # Build query with optional LIMIT clause
+            # Note: Graphiti stores episode content in 'content' field, not 'episode_body'
             query = """
             MATCH (e:Episodic)
             WHERE e.name STARTS WITH $user_prefix
             RETURN e.uuid as uuid, e.name as name, e.created_at as created_at, 
-                   e.source_description as source, e.episode_body as body
+                   e.source_description as source, e.content as content,
+                   e.episode_body as episode_body
             ORDER BY e.created_at DESC
             """
             
@@ -843,13 +845,15 @@ class GraphitiWrapper:
                         created_at = created_at.iso_format()
                     elif hasattr(created_at, 'to_native'):
                         created_at = created_at.to_native()
+                    # Try both content fields (Graphiti might use different field names)
+                    body = record.get("content") or record.get("episode_body") or ""
                         
                     episodes.append({
                         "uuid": record["uuid"],
                         "name": record["name"],
                         "created_at": str(created_at),
                         "source": record["source"],
-                        "body": record["body"][:200] + "..." if record["body"] and len(record["body"]) > 200 else record["body"]
+                        "content": body  # Return full content
                     })
             
             return episodes
