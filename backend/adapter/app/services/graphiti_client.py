@@ -265,7 +265,7 @@ class GraphitiWrapper:
                                             if modified:
                                                 content = json.dumps(parsed)
                                                 
-                                        except json.JSONDecodeError:
+                                    except json.JSONDecodeError:
                                             # Attempt to repair truncated JSON
                                             # LLMs often cut off at max tokens, leaving unclosed lists/objects
                                             if content.strip().startswith('{') or content.strip().startswith('['):
