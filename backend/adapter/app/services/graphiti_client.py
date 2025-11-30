@@ -116,11 +116,20 @@ class GraphitiWrapper:
                                 
                             # If error, check timeout
                             elapsed = time.time() - start_time
+                            
+                            # Try to read error body for debugging
+                            error_body = ""
+                            try:
+                                await response.aread()
+                                error_body = response.content.decode('utf-8', errors='ignore')
+                            except:
+                                pass
+
                             if elapsed >= TIMEOUT:
-                                logger.error(f"Request failed after {TIMEOUT}s retrying. Final status: {response.status_code}")
+                                logger.error(f"Request failed after {TIMEOUT}s retrying. Final status: {response.status_code}. Error: {error_body}")
                                 break
                                 
-                            logger.warning(f"Request failed with status {response.status_code}. Retrying in {RETRY_INTERVAL}s... (Elapsed: {int(elapsed)}s)")
+                            logger.warning(f"Request failed with status {response.status_code}. Error: {error_body}. Retrying in {RETRY_INTERVAL}s... (Elapsed: {int(elapsed)}s)")
                             await asyncio.sleep(RETRY_INTERVAL)
                             
                         except Exception as e:
