@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import ForceGraph3D from 'react-force-graph-3d';
 import SpriteText from 'three-spritetext';
+import * as THREE from 'three';
 
 interface GraphViewer3DProps {
     elements: any[];
@@ -63,13 +64,13 @@ export default function GraphViewer3D({ elements }: GraphViewer3DProps) {
             node.val = Math.max(1, Math.sqrt(degree) * 2); // Size based on degree
 
             if (degree === uniqueDegrees[0] && uniqueDegrees[0] > 0) {
-                node.color = 'red'; // Top 1
+                node.color = '#ef4444'; // Red (Tailwind red-500)
             } else if (degree === uniqueDegrees[1] && uniqueDegrees.length > 1) {
-                node.color = 'yellow'; // Top 2
+                node.color = '#eab308'; // Yellow (Tailwind yellow-500)
             } else if (degree === uniqueDegrees[2] && uniqueDegrees.length > 2) {
-                node.color = 'green'; // Top 3
+                node.color = '#22c55e'; // Green (Tailwind green-500)
             } else {
-                node.color = 'blue'; // Others
+                node.color = '#3b82f6'; // Blue (Tailwind blue-500)
             }
         });
 
@@ -84,14 +85,30 @@ export default function GraphViewer3D({ elements }: GraphViewer3DProps) {
                 nodeColor="color"
                 nodeRelSize={6}
                 nodeThreeObject={(node: any) => {
+                    const group = new THREE.Group();
+
+                    // Create Sphere
+                    const geometry = new THREE.SphereGeometry(node.val * 4, 32, 32);
+                    const material = new THREE.MeshLambertMaterial({
+                        color: node.color || '#3b82f6',
+                        transparent: true,
+                        opacity: 0.75
+                    });
+                    const sphere = new THREE.Mesh(geometry, material);
+                    group.add(sphere);
+
+                    // Create Text
                     const sprite = new SpriteText(node.name);
-                    sprite.color = node.color;
-                    sprite.textHeight = 8;
-                    return sprite;
+                    sprite.color = 'white';
+                    sprite.textHeight = Math.max(4, node.val * 2); // Scale text with node
+                    sprite.position.set(0, 0, 0); // Center text
+                    group.add(sprite);
+
+                    return group;
                 }}
                 linkColor={() => '#ffffff'}
-                linkWidth={3}
-                linkOpacity={0.9}
+                linkWidth={1.5}
+                linkOpacity={0.6}
                 linkDirectionalParticles={2}
                 linkDirectionalParticleWidth={2}
                 linkDirectionalArrowLength={3.5}
