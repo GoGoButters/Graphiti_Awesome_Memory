@@ -583,11 +583,11 @@ class GraphitiWrapper:
             # Query nodes and edges filtered by group_id
             query = """
             // Get all nodes for this user by group_id
-            MATCH (n:EntityNode)
+            MATCH (n:Entity)
             WHERE n.group_id = $group_id
             
             // Get edges between these nodes
-            OPTIONAL MATCH (n)-[r:RELATES_TO]-(m:EntityNode)
+            OPTIONAL MATCH (n)-[r]-(m:Entity)
             WHERE m.group_id = $group_id
             
             RETURN 
