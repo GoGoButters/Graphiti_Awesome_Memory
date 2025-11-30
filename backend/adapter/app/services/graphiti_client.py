@@ -581,17 +581,19 @@ class GraphitiWrapper:
             driver = self.client.driver
             
             # Query nodes and edges filtered by group_id
+            # Query nodes and edges, including neighbors even if they don't have the group_id
             query = """
-            // Get all nodes for this user by group_id
             MATCH (n:Entity)
             WHERE n.group_id = $group_id
-            
-            // Get edges between these nodes
             OPTIONAL MATCH (n)-[r]-(m:Entity)
-            WHERE m.group_id = $group_id
+            
+            WITH n, r, m
+            UNWIND [n, m] as node
+            WITH node, r
+            WHERE node IS NOT NULL
             
             RETURN 
-                collect(DISTINCT n) as nodes,
+                collect(DISTINCT node) as nodes,
                 collect(DISTINCT r) as edges
             """
             
