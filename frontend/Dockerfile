@@ -3,9 +3,11 @@ FROM node:18-alpine as build
 WORKDIR /app
 COPY frontend/package.json .
 RUN npm install
+# Install typescript globally to ensure tsc is executable
+RUN npm install -g typescript
 COPY frontend .
-# Use npx to run tsc to avoid permission issues with local node_modules/.bin
-RUN npx tsc && npx vite build
+# Run build using global tsc
+RUN tsc && npx vite build
 
 FROM nginx:alpine
 COPY --from=build /app/dist /usr/share/nginx/html
