@@ -113,8 +113,20 @@ class GraphitiWrapper:
                             # If successful, break loop
                             if response.status_code < 400:
                                 break
-                                
-                            # If error, check timeout
+                            
+                            # Don't retry on client errors (4xx) except 429 (Too Many Requests)
+                            if 400 <= response.status_code < 500 and response.status_code != 429:
+                                logger.error(f"Request failed with status {response.status_code} (Client Error). Not retrying.")
+                                # Try to read error body for debugging
+                                try:
+                                    await response.aread()
+                                    error_body = response.content.decode('utf-8', errors='ignore')
+                                    logger.error(f"Error body: {error_body}")
+                                except:
+                                    pass
+                                break
+
+                            # If error (5xx or 429), check timeout
                             elapsed = time.time() - start_time
                             
                             # Try to read error body for debugging
