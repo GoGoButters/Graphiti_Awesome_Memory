@@ -283,15 +283,15 @@ class GraphitiWrapper:
                                                     except json.JSONDecodeError:
                                                         continue
                                         
-                                        # If JSON parsing fails (and repair failed), check if it's plain text that needs wrapping
-                                        if content and not content.strip().startswith('{') and not content.strip().startswith('['):
-                                            # Wrap plain text in {"summary": "..."} for EntitySummary
-                                            # Must also include empty extracted_entities to satisfy Pydantic model
-                                            logger.info("Fixing JSON: Wrapping plain text in summary object with empty entities")
-                                            content = json.dumps({
-                                                "summary": content.strip(),
-                                                "extracted_entities": []
-                                            })
+                                    # If JSON parsing fails (and repair failed), check if it's plain text that needs wrapping
+                                    if content and not content.strip().startswith('{') and not content.strip().startswith('['):
+                                        # Wrap plain text in {"summary": "..."} for EntitySummary
+                                        # Must also include empty extracted_entities to satisfy Pydantic model
+                                        logger.info("Fixing JSON: Wrapping plain text in summary object with empty entities")
+                                        content = json.dumps({
+                                            "summary": content.strip(),
+                                            "extracted_entities": []
+                                        })
                                     
                                     if content != original_content:
                                         logger.info(f"LLM Cleaned Response (HTTP): {content}")
