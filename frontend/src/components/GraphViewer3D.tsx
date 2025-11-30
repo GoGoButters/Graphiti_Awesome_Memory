@@ -39,6 +39,9 @@ export default function GraphViewer3D({ elements }: GraphViewer3DProps) {
         // Second pass: process edges and add missing nodes
         elements.forEach(el => {
             if (el.data.source && el.data.target) {
+                // Skip self-loops
+                if (el.data.source === el.data.target) return;
+
                 // Check if source/target nodes exist, if not add them
                 if (!nodeIds.has(el.data.source)) {
                     nodes.push({ id: el.data.source, name: 'Unknown', val: 0.5, color: 'gray' });
