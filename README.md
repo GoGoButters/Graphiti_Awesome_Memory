@@ -290,3 +290,7 @@ If you find this project useful, consider supporting its development with a dona
 - **Tron (TRX)**: `TT9gPkor4QoR9c12x8HLbvCLeNcS9KDutc`
 
 Your support helps maintain and improve this project. Thank you! 🙏
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=GoGoButters/Graphiti_Awesome_Memory&type=Date)](https://star-history.com/#GoGoButters/Graphiti_Awesome_Memory&Date)
