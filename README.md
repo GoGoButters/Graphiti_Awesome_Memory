@@ -81,31 +81,94 @@ A production-ready dev setup for a Graphiti memory platform, featuring a FastAPI
 
 ## API Usage
 
+All API endpoints use `X-API-KEY` header for authentication (default: `adapter-secret-api-key`).
+
 ### Append Memory
+Add a new memory episode for a user:
 ```bash
-curl -X POST http://<VM_IP>:8000/memory/append \
+curl -X POST http://<SERVER_IP>:8000/memory/append \
   -H "Content-Type: application/json" \
   -H "X-API-KEY: adapter-secret-api-key" \
   -d '{"user_id":"user123","text":"My name is Alice. I like robotics.","role":"user","metadata":{"source":"n8n"}}'
 ```
 
+**Response:**
+```json
+{
+  "episode_id": "user123_2025-12-01T12:00:00.000000+00:00",
+  "status": "success"
+}
+```
+
 ### Query Memory
+Search user's memories using semantic search:
 ```bash
-curl -X POST http://<VM_IP>:8000/memory/query \
+curl -X POST http://<SERVER_IP>:8000/memory/query \
   -H "Content-Type: application/json" \
   -H "X-API-KEY: adapter-secret-api-key" \
   -d '{"user_id":"user123","query":"What does Alice like?","limit":5}'
 ```
 
-## Deployment on Ubuntu 24.04 VM
+**Response:**
+```json
+{
+  "results": [
+    {
+      "fact": "Alice likes robotics",
+      "score": 0.95,
+      "uuid": "edge-uuid-123",
+      "created_at": "2025-12-01T12:00:00+00:00"
+    }
+  ],
+  "total": 1
+}
+```
 
-These instructions assume you have a fresh Ubuntu 24.04 Virtual Machine (e.g., on Proxmox, VirtualBox, VMware).
+### Generate Summary
+Create a summary of user's memories:
+```bash
+curl -X POST http://<SERVER_IP>:8000/memory/summary \
+  -H "Content-Type: application/json" \
+  -H "X-API-KEY: adapter-secret-api-key" \
+  -d '{"user_id":"user123"}'
+```
 
-**Note:** Docker in VMs works much better than in LXC containers due to full kernel isolation. VMs avoid common issues with BuildKit, overlayfs, and sysctl.
+### Get User Episodes
+Retrieve user's recent episodes with optional limit:
+```bash
+curl -H "X-API-KEY: adapter-secret-api-key" \
+  "http://<SERVER_IP>:8000/memory/users/user123/episodes?limit=10"
+```
+
+**Response:**
+```json
+{
+  "episodes": [
+    {
+      "created_at": "2025-12-01T12:00:00+00:00",
+      "source": "n8n (user)",
+      "content": "My name is Alice. I like robotics."
+    }
+  ],
+  "total": 1
+}
+```
+
+### Admin Endpoints (JWT Authentication)
+
+Admin endpoints require JWT token obtained by logging into the Admin UI at `http://<SERVER_IP>:3000`.
+
+- `GET /admin/users` - List all users with episode counts
+- `GET /admin/users/{user_id}/graph` - Get user's knowledge graph
+- `GET /admin/users/{user_id}/episodes?limit=N` - Get user episodes (admin)
+- `DELETE /admin/users/{user_id}` - Delete user and all data
+- `DELETE /admin/episodes/{episode_uuid}` - Delete specific episode
+
+## Deployment on Ubuntu 24.04
+
+These instructions assume you have a fresh Ubuntu 24.04 server.
 
 ### 1. Install Dependencies & Docker
-
-Run the following commands inside your VM:
 
 ```bash
 # Update system
@@ -137,8 +200,8 @@ nano config.yml
 ```
 
 **Important:** Update the following in `config.yml`:
-- `app.base_url` - Set to `http://<VM_IP>:8000` (e.g., `http://192.168.1.100:8000`)
-- `app.admin_frontend_url` - Set to `http://<VM_IP>:3000`
+- `app.base_url` - Set to `http://<SERVER_IP>:8000` (e.g., `http://192.168.1.100:8000`)
+- `app.admin_frontend_url` - Set to `http://<SERVER_IP>:3000`
 - `llm.api_key` - Your LLM API key
 - `embeddings.api_key` - Your embeddings API key
 - `reranker.api_key` - Your reranker API key
@@ -172,9 +235,9 @@ All services should show as "Up" or "healthy":
 - **frontend** - React UI (Up)
 
 Access the services:
-- **Adapter API**: `http://<VM_IP>:8000/docs`
-- **Admin UI**: `http://<VM_IP>:3000`
-- **Neo4j Browser**: `http://<VM_IP>:7474`
+- **Adapter API**: `http://<SERVER_IP>:8000/docs`
+- **Admin UI**: `http://<SERVER_IP>:3000`
+- **Neo4j Browser**: `http://<SERVER_IP>:7474`
 
 ### Troubleshooting
 
@@ -216,3 +279,14 @@ make test
     - Adapter uses API Key (`X-API-KEY`).
     - Admin UI uses JWT (Login with credentials from `config.yml`).
 - **Network**: Ensure Neo4j and Redis ports are not exposed to the public internet in production.
+
+## Support the Project
+
+If you find this project useful, consider supporting its development with a donation:
+
+- **USDT (ERC20)**: `0xd91e775b3636f2be35d85252d8a17550c0f869a6`
+- **Bitcoin**: `3Eaa654UHa7GZnKTpYr5Nt2UG5XoUcKXgx`
+- **Ethereum (ERC20)**: `0x4dbf76b16b9de343ff17b88963d114f8155a2df0`
+- **Tron (TRX)**: `TT9gPkor4QoR9c12x8HLbvCLeNcS9KDutc`
+
+Your support helps maintain and improve this project. Thank you! 🙏
