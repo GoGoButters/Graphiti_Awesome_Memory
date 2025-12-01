@@ -231,12 +231,22 @@ class GraphitiWrapper:
                                             parsed["extracted_entities"] = parsed.pop("entities")
                                             modified = True
                                         
-                                        # Fix entity_name -> name in extracted_entities
+                                        # Fix facts -> edges
+                                        if isinstance(parsed, dict) and "facts" in parsed:
+                                            logger.info("Fixing JSON: Renaming 'facts' to 'edges'")
+                                            parsed["edges"] = parsed.pop("facts")
+                                            modified = True
+                                        
+                                        # Fix entity_name -> name and entity -> name in extracted_entities
                                         if isinstance(parsed, dict) and "extracted_entities" in parsed:
                                             for entity in parsed["extracted_entities"]:
-                                                if isinstance(entity, dict) and "entity_name" in entity:
-                                                    entity["name"] = entity.pop("entity_name")
-                                                    modified = True
+                                                if isinstance(entity, dict):
+                                                    if "entity_name" in entity:
+                                                        entity["name"] = entity.pop("entity_name")
+                                                        modified = True
+                                                    elif "entity" in entity:
+                                                        entity["name"] = entity.pop("entity")
+                                                        modified = True
                                             
                                             # Fix NodeResolutions: extracted_entities -> entity_resolutions
                                             # If the entities contain 'duplicates', it's a resolution result
@@ -382,12 +392,22 @@ class GraphitiWrapper:
                                                 parsed["extracted_entities"] = parsed.pop("entities")
                                                 modified = True
                                             
-                                            # Fix entity_name -> name in extracted_entities
+                                            # Fix facts -> edges
+                                            if isinstance(parsed, dict) and "facts" in parsed:
+                                                logger.info("Fixing JSON: Renaming 'facts' to 'edges'")
+                                                parsed["edges"] = parsed.pop("facts")
+                                                modified = True
+                                            
+                                            # Fix entity_name -> name and entity -> name in extracted_entities
                                             if isinstance(parsed, dict) and "extracted_entities" in parsed:
                                                 for entity in parsed["extracted_entities"]:
-                                                    if isinstance(entity, dict) and "entity_name" in entity:
-                                                        entity["name"] = entity.pop("entity_name")
-                                                        modified = True
+                                                    if isinstance(entity, dict):
+                                                        if "entity_name" in entity:
+                                                            entity["name"] = entity.pop("entity_name")
+                                                            modified = True
+                                                        elif "entity" in entity:
+                                                            entity["name"] = entity.pop("entity")
+                                                            modified = True
                                                 
                                                 # Fix NodeResolutions: extracted_entities -> entity_resolutions
                                                 entities = parsed["extracted_entities"]
