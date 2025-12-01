@@ -5,7 +5,7 @@ from app.services.graphiti_client import GraphitiWrapper
 
 @pytest.mark.asyncio
 async def test_retry_logic():
-    """Test that the client retries on 404/500 errors"""
+    """Test that the client retries on 503/500 errors"""
     
     # Mock the super().handle_async_request
     # We need to mock it on the instance of CleaningHTTPTransport
@@ -36,8 +36,9 @@ async def test_retry_logic():
     # We can patch `httpx.AsyncHTTPTransport.handle_async_request`
     with patch('httpx.AsyncHTTPTransport.handle_async_request', new_callable=AsyncMock) as mock_super:
         # Scenario: 2 failures then success
+        # Use 503 (Service Unavailable) instead of 404 because 4xx errors are not retried
         mock_super.side_effect = [
-            httpx.Response(404, content=b"Model not found"),
+            httpx.Response(503, content=b"Service unavailable"),
             httpx.Response(500, content=b"Internal error"),
             httpx.Response(200, content=b'{"choices": [{"message": {"content": "Success"}}]}')
         ]
@@ -58,8 +59,8 @@ async def test_retry_timeout():
     transport = wrapper.client.llm_client.client._client._transport
     
     with patch('httpx.AsyncHTTPTransport.handle_async_request', new_callable=AsyncMock) as mock_super:
-        # Always fail
-        mock_super.return_value = httpx.Response(404, content=b"Model not found")
+        # Always fail with 503 (Service Unavailable) which will be retried
+        mock_super.return_value = httpx.Response(503, content=b"Service unavailable")
         
         # Mock time to simulate timeout
         # We need to mock time.time() to increment
@@ -71,8 +72,8 @@ async def test_retry_timeout():
                 request = httpx.Request("POST", "http://test")
                 response = await transport.handle_async_request(request)
                 
-                # Should return the last failed response (404)
-                assert response.status_code == 404
+                # Should return the last failed response (503)
+                assert response.status_code == 503
                 # Should have tried a few times until timeout
                 assert mock_super.call_count >= 1
                 assert mock_sleep.call_count >= 1

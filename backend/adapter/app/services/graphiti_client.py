@@ -276,12 +276,12 @@ class GraphitiWrapper:
                                         
                                     # If JSON parsing fails (and repair failed), check if it's plain text that needs wrapping
                                     if content and not content.strip().startswith('{') and not content.strip().startswith('['):
-                                        # Wrap plain text in {"summary": "..."} for EntitySummary
-                                        # Must also include empty extracted_entities to satisfy Pydantic model
-                                        logger.info("Fixing JSON: Wrapping plain text in summary object with empty entities")
+                                        # Wrap plain text - include both extracted_entities and edges for compatibility
+                                        logger.info("Fixing JSON: Wrapping plain text in summary object with empty entities/edges")
                                         content = json.dumps({
                                             "summary": content.strip(),
-                                            "extracted_entities": []
+                                            "extracted_entities": [],
+                                            "edges": []
                                         })
                                     
                                     if content != original_content:
@@ -422,15 +422,15 @@ class GraphitiWrapper:
                                                     except json.JSONDecodeError:
                                                         continue
 
-                                            # If JSON parsing fails, check if it's plain text that needs wrapping
-                                            if content and not content.strip().startswith('{') and not content.strip().startswith('['):
-                                                # Wrap plain text in {"summary": "..."} for EntitySummary
-                                                # Must also include empty extracted_entities to satisfy Pydantic model
-                                                logger.info("Fixing JSON: Wrapping plain text in summary object with empty entities")
-                                                content = json.dumps({
-                                                    "summary": content.strip(),
-                                                    "extracted_entities": []
-                                                })
+                                        # If JSON parsing fails (and repair failed), check if it's plain text that needs wrapping
+                                        if content and not content.strip().startswith('{') and not content.strip().startswith('['):
+                                            # Wrap plain text - include both extracted_entities and edges for compatibility
+                                            logger.info("Fixing JSON: Wrapping plain text in summary object with empty entities/edges")
+                                            content = json.dumps({
+                                                "summary": content.strip(),
+                                                "extracted_entities": [],
+                                                "edges": []
+                                            })
                                         
                                         if content != original_content:
                                             logger.info(f"LLM Cleaned Response (HTTP, non-standard): {content}")
@@ -818,13 +818,12 @@ class GraphitiWrapper:
             driver = self.client.driver
             
             # Build query with optional LIMIT clause
-            # Note: Graphiti stores episode content in 'content' field, not 'episode_body'
+            # Note: Graphiti stores episode content in 'content' field
             query = """
             MATCH (e:Episodic)
             WHERE e.name STARTS WITH $user_prefix
             RETURN e.uuid as uuid, e.name as name, e.created_at as created_at, 
-                   e.source_description as source, e.content as content,
-                   e.episode_body as episode_body
+                   e.source_description as source, e.content as content
             ORDER BY e.created_at DESC
             """
             
