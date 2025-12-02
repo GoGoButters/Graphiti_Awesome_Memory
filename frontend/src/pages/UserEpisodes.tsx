@@ -82,8 +82,8 @@ export default function UserEpisodes() {
                         </tr>
                     </thead>
                     <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                        {episodes.map((episode, index) => (
-                            <tr key={episode.created_at || index} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                        {episodes.map((episode) => (
+                            <tr key={episode.uuid} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                     {new Date(episode.created_at).toLocaleString()}
                                 </td>
@@ -97,8 +97,8 @@ export default function UserEpisodes() {
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                     <button
-                                        onClick={() => handleDelete(episode.created_at)}
-                                        disabled={deletingId === episode.created_at}
+                                        onClick={() => handleDelete(episode.uuid)}
+                                        disabled={deletingId === episode.uuid}
                                         className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 disabled:opacity-50"
                                     >
                                         <Trash2 size={18} />

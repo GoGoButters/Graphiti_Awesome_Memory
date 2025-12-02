@@ -868,6 +868,7 @@ class GraphitiWrapper:
                     body = record.get("content") or record.get("episode_body") or ""
                         
                     episodes.append({
+                        "uuid": record["uuid"],
                         "created_at": str(created_at),
                         "source": record["source"],
                         "content": body  # Return full content
