@@ -894,10 +894,8 @@ class GraphitiWrapper:
             logger.info(f"Deleting episode: {episode_uuid}")
             driver = self.client.driver
             
-            # Delete episode and cleanup orphaned entities
-            # Graphiti uses MENTIONS relationship between Episodic and Entity nodes
-            # RELATES_TO is used for Entity-Entity relationships (facts/edges)
-            query = """
+            # Step 1: Delete episode and orphaned entities
+            query1 = """
             // Find the episode to delete
             MATCH (e:Episodic {uuid: $uuid})
             
@@ -915,24 +913,48 @@ class GraphitiWrapper:
             WITH entity, count(other_episode) as other_refs
             WHERE other_refs = 0
             
-            // Delete orphaned entities (DETACH DELETE removes all RELATES_TO edges too)
+            // Delete orphaned entities (DETACH DELETE removes their RELATES_TO edges too)
             WITH collect(entity) as orphaned_entities
             FOREACH (orphan IN orphaned_entities | DETACH DELETE orphan)
             
             RETURN size(orphaned_entities) as deleted_entities
             """
             
-            result = await driver.execute_query(
-                query,
+            result1 = await driver.execute_query(
+                query1,
                 uuid=episode_uuid,
                 database_="neo4j"
             )
             
-            if result.records:
-                deleted_entities = result.records[0]["deleted_entities"]
-                logger.info(f"Deleted episode {episode_uuid} and {deleted_entities} orphaned entities")
-            else:
-                logger.info(f"Deleted episode {episode_uuid}")
+            deleted_entities = result1.records[0]["deleted_entities"] if result1.records else 0
+            
+            # Step 2: Cleanup any orphaned RELATES_TO relationships
+            # (edges that point to non-existent entities or are not connected to any episodes)
+            query2 = """
+            // Find all RELATES_TO relationships
+            MATCH ()-[r:RELATES_TO]->()
+            
+            // Check if both nodes exist and are mentioned by at least one episode
+            WITH r, startNode(r) as start_entity, endNode(r) as end_entity
+            OPTIONAL MATCH (start_entity)<-[:MENTIONS]-(e1:Episodic)
+            OPTIONAL MATCH (end_entity)<-[:MENTIONS]-(e2:Episodic)
+            WITH r, count(e1) as start_refs, count(e2) as end_refs
+            
+            // Delete relationship if either node is not mentioned by any episode
+            WHERE start_refs = 0 OR end_refs = 0
+            DELETE r
+            
+            RETURN count(r) as deleted_edges
+            """
+            
+            result2 = await driver.execute_query(
+                query2,
+                database_="neo4j"
+            )
+            
+            deleted_edges = result2.records[0]["deleted_edges"] if result2.records else 0
+            
+            logger.info(f"Deleted episode {episode_uuid}: {deleted_entities} entities, {deleted_edges} orphaned edges")
             return True
             
         except Exception as e:
