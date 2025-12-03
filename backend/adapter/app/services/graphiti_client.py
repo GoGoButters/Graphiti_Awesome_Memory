@@ -882,7 +882,7 @@ class GraphitiWrapper:
 
     async def delete_episode(self, episode_uuid: str) -> bool:
         """
-        Delete a specific episode and cleanup orphaned nodes
+        Delete a specific episode and cleanup orphaned nodes and edges
         
         Args:
             episode_uuid: Episode UUID
@@ -894,32 +894,55 @@ class GraphitiWrapper:
             logger.info(f"Deleting episode: {episode_uuid}")
             driver = self.client.driver
             
-            # Delete episode and cleanup orphaned nodes
+            # Delete episode and cleanup orphaned nodes/edges
+            # Strategy: Find nodes/edges that will become orphaned BEFORE deleting episode
             query = """
+            // Find the episode to delete
             MATCH (e:Episodic {uuid: $uuid})
             
-            // Collect connected nodes before deleting episode
-            OPTIONAL MATCH (e)--(n)
-            WITH e, collect(DISTINCT n) as connected_nodes
+            // Find all entities connected to this episode
+            OPTIONAL MATCH (e)-[:RELATES_TO|HAS_ENTITY]-(entity:Entity)
+            WITH e, collect(DISTINCT entity) as episode_entities
             
-            // Delete the episode
+            // Find all edges connected to this episode
+            OPTIONAL MATCH (e)-[:HAS_EDGE]-(edge:Relation)
+            WITH e, episode_entities, collect(DISTINCT edge) as episode_edges
+            
+            // Delete the episode first
             DETACH DELETE e
             
-            // Check connected nodes for orphans
-            WITH connected_nodes
-            UNWIND connected_nodes as n
-            MATCH (n)
-            WHERE NOT (n)--()
-            DETACH DELETE n
+            // Now check which entities became orphaned (no other episodes reference them)
+            WITH episode_entities, episode_edges
+            UNWIND episode_entities as entity
+            OPTIONAL MATCH (entity)-[:RELATES_TO|HAS_ENTITY]-(other_episode:Episodic)
+            WITH entity, episode_edges, count(other_episode) as other_refs
+            WHERE other_refs = 0
+            
+            // Delete orphaned entities
+            WITH collect(entity) as orphaned_entities, episode_edges
+            FOREACH (orphan IN orphaned_entities | DETACH DELETE orphan)
+            
+            // Check which edges became orphaned
+            WITH episode_edges, size(orphaned_entities) as deleted_entities
+            UNWIND episode_edges as edge
+            OPTIONAL MATCH (edge)-[:HAS_EDGE]-(other_episode:Episodic)
+            WITH edge, deleted_entities, count(other_episode) as other_refs
+            WHERE other_refs = 0
+            
+            // Delete orphaned edges
+            DETACH DELETE edge
+            
+            RETURN deleted_entities + count(edge) as total_deleted
             """
             
-            await driver.execute_query(
+            result = await driver.execute_query(
                 query,
                 uuid=episode_uuid,
                 database_="neo4j"
             )
             
-            logger.info(f"Deleted episode {episode_uuid}")
+            total_deleted = result.records[0]["total_deleted"] if result.records else 0
+            logger.info(f"Deleted episode {episode_uuid} and {total_deleted} orphaned nodes/edges")
             return True
             
         except Exception as e:
