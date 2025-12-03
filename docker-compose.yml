@@ -32,7 +32,7 @@ services:
       context: ./backend/adapter
     container_name: adapter
     ports:
-      - "8000:8000"
+      - "${ADAPTER_PORT:-8000}:8000"
     env_file:
       - .env.adapter
     security_opt:
@@ -62,7 +62,7 @@ services:
       dockerfile: frontend/Dockerfile
     container_name: frontend
     ports:
-      - "3000:8080"
+      - "${FRONTEND_PORT:-3000}:8080"
     env_file:
       - ./frontend/.env
     security_opt:

@@ -38,6 +38,9 @@ adapter:
   allowed_origins:
     - http://localhost:3000
 
+frontend:
+  port: 3000
+
 worker:
   concurrency: 4
 

@@ -67,10 +67,16 @@ RERANKER_MODEL=$(get_config_value "reranker.model")
 
 # Adapter
 ADAPTER_API_KEY=$(get_config_value "adapter.api_key")
+ADAPTER_PORT=$(get_config_value "adapter.port")
 JWT_SECRET=$(get_config_value "adapter.jwt_secret")
 ADMIN_USERNAME=$(get_config_value "security.admin_username")
 ADMIN_PASSWORD=$(get_config_value "security.admin_password")
 ADMIN_FRONTEND_URL=$(get_config_value "app.admin_frontend_url")
+
+# Frontend
+FRONTEND_PORT=$(get_config_value "frontend.port")
+# Default to 3000 if not specified
+FRONTEND_PORT=${FRONTEND_PORT:-3000}
 
 # .env.adapter
 cat > .env.adapter <<EOF
@@ -104,6 +110,8 @@ cat > .env <<EOF
 NEO4J_USER=$NEO4J_USER
 NEO4J_PASSWORD=$NEO4J_PASSWORD
 NEO4J_IMAGE=neo4j:5.26.0
+ADAPTER_PORT=$ADAPTER_PORT
+FRONTEND_PORT=$FRONTEND_PORT
 EOF
 echo "Created .env"
 
