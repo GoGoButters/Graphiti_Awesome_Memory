@@ -17,7 +17,7 @@ async def get_api_key(api_key_header: str = Security(api_key_header)):
 
 def create_access_token(data: dict):
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(seconds=3600) # Hardcoded expiry for now, or use config
+    expire = datetime.utcnow() + timedelta(days=7)  # 7 days expiry for admin sessions
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET, algorithm="HS256")
     return encoded_jwt
