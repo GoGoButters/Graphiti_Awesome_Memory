@@ -11,14 +11,6 @@ export default function Login() {
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
-            // In a real app, we'd have a /login endpoint.
-            // For this MVP, we might assume the adapter has one or we use basic auth to get a token.
-            // The prompt says "Login page (JWT auth using admin creds from config)".
-            // But I didn't implement a /login endpoint in the adapter!
-            // I need to add a /login endpoint to the adapter's admin router.
-            // For now, I'll assume it exists or I'll fix it in the next step.
-            // Let's assume POST /admin/login returns { access_token: "..." }
-
             const response = await apiClient.post('/admin/login', { username, password });
             localStorage.setItem('token', response.data.access_token);
             navigate('/');
@@ -30,9 +22,9 @@ export default function Login() {
     return (
         <>
             <GitHubButton />
-            <div className="flex items-center justify-center h-screen bg-gray-900">
-                <form onSubmit={handleLogin} className="p-8 bg-gray-800 rounded-lg shadow-xl border border-gray-700">
-                    <h1 className="mb-6 text-2xl font-bold text-white">Graphiti Awesome Memory</h1>
+            <div className="flex items-center justify-center min-h-screen bg-gray-900 p-4">
+                <form onSubmit={handleLogin} className="w-full max-w-md p-6 sm:p-8 bg-gray-800 rounded-lg shadow-xl border border-gray-700">
+                    <h1 className="mb-6 text-xl sm:text-2xl font-bold text-white text-center">Graphiti Awesome Memory</h1>
                     <input
                         className="w-full p-3 mb-4 bg-gray-700 border border-gray-600 rounded text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                         placeholder="Username"

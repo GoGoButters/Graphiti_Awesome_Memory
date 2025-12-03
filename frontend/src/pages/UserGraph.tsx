@@ -43,23 +43,23 @@ export default function UserGraph() {
 
     return (
         <div className="relative w-screen h-screen overflow-hidden bg-gray-900">
-            <div className="absolute top-4 left-4 z-10 flex gap-2">
+            <div className="absolute top-4 left-4 z-10 flex flex-col sm:flex-row gap-2">
                 <button
                     onClick={() => window.history.back()}
-                    className="bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded backdrop-blur-sm transition-colors border border-white/20 flex items-center gap-2"
+                    className="bg-white/10 hover:bg-white/20 text-white px-3 py-2 sm:px-4 sm:py-2 rounded backdrop-blur-sm transition-colors border border-white/20 flex items-center gap-2 text-sm sm:text-base"
                 >
-                    ← Back
+                    ← <span className="hidden sm:inline">Back</span>
                 </button>
                 <button
                     onClick={() => setRefreshKey(prev => prev + 1)}
-                    className="bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded backdrop-blur-sm transition-colors border border-white/20 flex items-center gap-2"
+                    className="bg-white/10 hover:bg-white/20 text-white px-3 py-2 sm:px-4 sm:py-2 rounded backdrop-blur-sm transition-colors border border-white/20 flex items-center gap-2 text-sm sm:text-base"
                     title="Refresh graph"
                 >
-                    🔄 Refresh
+                    🔄 <span className="hidden sm:inline">Refresh</span>
                 </button>
             </div>
-            <div className="absolute top-4 right-4 z-10 pointer-events-none">
-                <h1 className="text-xl font-bold text-white/80 backdrop-blur-sm px-4 py-2 rounded bg-black/20">
+            <div className="absolute top-4 right-4 z-10 pointer-events-none max-w-[200px] sm:max-w-none">
+                <h1 className="text-sm sm:text-xl font-bold text-white/80 backdrop-blur-sm px-3 py-2 sm:px-4 sm:py-2 rounded bg-black/20 break-all">
                     Graph: {userId}
                 </h1>
             </div>

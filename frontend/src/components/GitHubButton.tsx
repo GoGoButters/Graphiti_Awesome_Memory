@@ -4,7 +4,7 @@ export default function GitHubButton() {
             href="https://github.com/GoGoButters/Graphiti_Awesome_Memory"
             target="_blank"
             rel="noopener noreferrer"
-            className="fixed top-4 right-4 sm:right-32 md:right-40 lg:right-48 z-40 flex items-center gap-2 px-4 py-2 bg-gray-800 dark:bg-gray-700 text-white rounded-lg shadow-lg hover:bg-gray-700 dark:hover:bg-gray-600 transition-colors"
+            className="fixed bottom-4 right-4 z-50 flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2 bg-gray-800 dark:bg-gray-700 text-white rounded-lg shadow-lg hover:bg-gray-700 dark:hover:bg-gray-600 transition-colors"
             title="View on GitHub"
         >
             <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
