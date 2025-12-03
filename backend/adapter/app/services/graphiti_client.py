@@ -894,45 +894,32 @@ class GraphitiWrapper:
             logger.info(f"Deleting episode: {episode_uuid}")
             driver = self.client.driver
             
-            # Delete episode and cleanup orphaned nodes/edges
+            # Delete episode and cleanup orphaned entities
+            # Graphiti uses MENTIONS relationship between Episodic and Entity nodes
+            # RELATES_TO is used for Entity-Entity relationships (facts/edges)
             query = """
             // Find the episode to delete
             MATCH (e:Episodic {uuid: $uuid})
             
-            // Find all entities connected to this episode
-            OPTIONAL MATCH (e)-[:RELATES_TO|HAS_ENTITY]-(entity:Entity)
+            // Find all entities mentioned by this episode
+            OPTIONAL MATCH (e)-[:MENTIONS]->(entity:Entity)
             WITH e, collect(DISTINCT entity) as episode_entities
-            
-            // Find all edges connected to this episode
-            OPTIONAL MATCH (e)-[:HAS_EDGE]-(edge:Relation)
-            WITH e, episode_entities, collect(DISTINCT edge) as episode_edges
             
             // Delete the episode first
             DETACH DELETE e
             
-            // Now check which entities became orphaned (no other episodes reference them)
-            WITH episode_entities, episode_edges
+            // Check which entities became orphaned (no other episodes mention them)
+            WITH episode_entities
             UNWIND episode_entities as entity
-            OPTIONAL MATCH (entity)-[:RELATES_TO|HAS_ENTITY]-(other_episode:Episodic)
-            WITH entity, episode_edges, count(other_episode) as other_refs
+            OPTIONAL MATCH (entity)<-[:MENTIONS]-(other_episode:Episodic)
+            WITH entity, count(other_episode) as other_refs
             WHERE other_refs = 0
             
-            // Delete orphaned entities and collect them
-            WITH collect(entity) as orphaned_entities, episode_edges
+            // Delete orphaned entities (DETACH DELETE removes all RELATES_TO edges too)
+            WITH collect(entity) as orphaned_entities
             FOREACH (orphan IN orphaned_entities | DETACH DELETE orphan)
             
-            // Check which edges became orphaned
-            WITH episode_edges, orphaned_entities
-            UNWIND episode_edges as edge
-            OPTIONAL MATCH (edge)-[:HAS_EDGE]-(other_episode:Episodic)
-            WITH edge, orphaned_entities, count(other_episode) as other_refs
-            WHERE other_refs = 0
-            
-            // Delete orphaned edges and collect
-            WITH collect(edge) as orphaned_edges, orphaned_entities
-            FOREACH (orphan_edge IN orphaned_edges | DETACH DELETE orphan_edge)
-            
-            RETURN size(orphaned_entities) as deleted_entities, size(orphaned_edges) as deleted_edges
+            RETURN size(orphaned_entities) as deleted_entities
             """
             
             result = await driver.execute_query(
@@ -943,9 +930,7 @@ class GraphitiWrapper:
             
             if result.records:
                 deleted_entities = result.records[0]["deleted_entities"]
-                deleted_edges = result.records[0]["deleted_edges"]
-                total = deleted_entities + deleted_edges
-                logger.info(f"Deleted episode {episode_uuid}: {deleted_entities} entities, {deleted_edges} edges (total: {total})")
+                logger.info(f"Deleted episode {episode_uuid} and {deleted_entities} orphaned entities")
             else:
                 logger.info(f"Deleted episode {episode_uuid}")
             return True
