@@ -895,7 +895,6 @@ class GraphitiWrapper:
             driver = self.client.driver
             
             # Delete episode and cleanup orphaned nodes/edges
-            # Strategy: Find nodes/edges that will become orphaned BEFORE deleting episode
             query = """
             // Find the episode to delete
             MATCH (e:Episodic {uuid: $uuid})
@@ -918,21 +917,22 @@ class GraphitiWrapper:
             WITH entity, episode_edges, count(other_episode) as other_refs
             WHERE other_refs = 0
             
-            // Delete orphaned entities
+            // Delete orphaned entities and collect them
             WITH collect(entity) as orphaned_entities, episode_edges
             FOREACH (orphan IN orphaned_entities | DETACH DELETE orphan)
             
             // Check which edges became orphaned
-            WITH episode_edges, size(orphaned_entities) as deleted_entities
+            WITH episode_edges, orphaned_entities
             UNWIND episode_edges as edge
             OPTIONAL MATCH (edge)-[:HAS_EDGE]-(other_episode:Episodic)
-            WITH edge, deleted_entities, count(other_episode) as other_refs
+            WITH edge, orphaned_entities, count(other_episode) as other_refs
             WHERE other_refs = 0
             
-            // Delete orphaned edges
-            DETACH DELETE edge
+            // Delete orphaned edges and collect
+            WITH collect(edge) as orphaned_edges, orphaned_entities
+            FOREACH (orphan_edge IN orphaned_edges | DETACH DELETE orphan_edge)
             
-            RETURN deleted_entities + count(edge) as total_deleted
+            RETURN size(orphaned_entities) as deleted_entities, size(orphaned_edges) as deleted_edges
             """
             
             result = await driver.execute_query(
@@ -941,8 +941,13 @@ class GraphitiWrapper:
                 database_="neo4j"
             )
             
-            total_deleted = result.records[0]["total_deleted"] if result.records else 0
-            logger.info(f"Deleted episode {episode_uuid} and {total_deleted} orphaned nodes/edges")
+            if result.records:
+                deleted_entities = result.records[0]["deleted_entities"]
+                deleted_edges = result.records[0]["deleted_edges"]
+                total = deleted_entities + deleted_edges
+                logger.info(f"Deleted episode {episode_uuid}: {deleted_entities} entities, {deleted_edges} edges (total: {total})")
+            else:
+                logger.info(f"Deleted episode {episode_uuid}")
             return True
             
         except Exception as e:
