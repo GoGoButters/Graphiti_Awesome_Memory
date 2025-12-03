@@ -192,8 +192,8 @@ systemctl status docker
 
 ```bash
 # Clone the repository
-git clone https://github.com/GoGoButters/Graphiti_n8n_Agent.git
-cd Graphiti_n8n_Agent
+git clone https://github.com/GoGoButters/Graphiti_Awesome_Memory.git
+cd Graphiti_Awesome_Memory
 
 # Edit configuration with your actual API keys and passwords
 nano config.yml
