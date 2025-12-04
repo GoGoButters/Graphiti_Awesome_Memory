@@ -73,6 +73,16 @@ class GraphitiWrapper:
     def __init__(self):
         """Initialize Graphiti client with Neo4j connection and custom LLM/Embedder"""
         try:
+            import os
+            
+            # Set SEMAPHORE_LIMIT for Graphiti's internal concurrency control
+            # This allows parallel LLM operations instead of sequential processing
+            # Default is 10, we increase to 100 for faster processing
+            if "SEMAPHORE_LIMIT" not in os.environ:
+                os.environ["SEMAPHORE_LIMIT"] = "100"
+            
+            logger.info(f"SEMAPHORE_LIMIT set to: {os.environ.get('SEMAPHORE_LIMIT', '10')}")
+            
             from openai import AsyncOpenAI
             from graphiti_core.llm_client.openai_client import OpenAIClient
             from graphiti_core.llm_client.config import LLMConfig

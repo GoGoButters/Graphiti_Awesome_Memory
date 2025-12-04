@@ -33,6 +33,10 @@ services:
     container_name: adapter
     ports:
       - "${ADAPTER_PORT:-8000}:8000"
+    environment:
+      # Increase concurrent LLM operations for faster processing
+      # Default is ~10, we set to 100 for local LLM server
+      - SEMAPHORE_LIMIT=100
     env_file:
       - .env.adapter
     security_opt:
