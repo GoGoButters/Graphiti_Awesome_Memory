@@ -510,48 +510,64 @@ class GraphitiWrapper:
                 
                 async def handle_async_request(self, request):
                     # Determine which endpoint to use based on model in request
+                    original_url = str(request.url)
+                    original_auth = request.headers.get('authorization', 'not set')
+                    
                     try:
                         body = request.content.decode('utf-8') if request.content else "{}"
                         data = json.loads(body)
                         model = data.get("model", "")
                         
-                        # Route to fast endpoint if request is for fast model
-                        if model == self.fast_model and self.fast_base_url != self.main_base_url:
-                            # Modify request URL to point to fast endpoint
-                            req_parsed = urlparse(str(request.url))
-                            new_url = urlunparse((
-                                self.fast_parsed.scheme,
-                                self.fast_parsed.netloc,
-                                req_parsed.path,
-                                req_parsed.params,
-                                req_parsed.query,
-                                req_parsed.fragment
-                            ))
-                            
-                            # Create new request with modified URL
-                            headers_dict = dict(request.headers)
-                            request = httpx.Request(
-                                method=request.method,
-                                url=new_url,
-                                headers=headers_dict,
-                                content=request.content
-                            )
-                            logger.debug(f"Routing {model} to fast endpoint: {new_url}")
+                        logger.info(f"🔍 Routing request: model={model}, url={original_url}")
+                        logger.info(f"   Fast model configured: {self.fast_model}")
+                        logger.info(f"   Auth header: {original_auth[:20]}...")
                         
-                        # Update Authorization header if using different API key
-                        if model == self.fast_model and self.fast_api_key != self.main_api_key:
-                            headers_dict = dict(request.headers)
-                            headers_dict['authorization'] = f'Bearer {self.fast_api_key}'
-                            request = httpx.Request(
-                                method=request.method,
-                                url=request.url,
-                                headers=headers_dict,
-                                content=request.content
-                            )
-                            logger.debug(f"Using fast API key for {model}")
+                        # Route to fast endpoint if request is for fast model
+                        if model == self.fast_model:
+                            logger.info(f"✓ Model matches fast_model!")
+                            
+                            if self.fast_base_url != self.main_base_url:
+                                # Modify request URL to point to fast endpoint
+                                req_parsed = urlparse(str(request.url))
+                                new_url = urlunparse((
+                                    self.fast_parsed.scheme,
+                                    self.fast_parsed.netloc,
+                                    req_parsed.path,
+                                    req_parsed.params,
+                                    req_parsed.query,
+                                    req_parsed.fragment
+                                ))
+                                
+                                # Create new request with modified URL
+                                headers_dict = dict(request.headers)
+                                request = httpx.Request(
+                                    method=request.method,
+                                    url=new_url,
+                                    headers=headers_dict,
+                                    content=request.content
+                                )
+                                logger.info(f"→ Routed to fast endpoint: {new_url}")
+                            else:
+                                logger.info(f"→ Same endpoint for both models, no URL change needed")
+                            
+                            # Update Authorization header if using different API key
+                            if self.fast_api_key != self.main_api_key:
+                                headers_dict = dict(request.headers)
+                                headers_dict['authorization'] = f'Bearer {self.fast_api_key}'
+                                request = httpx.Request(
+                                    method=request.method,
+                                    url=request.url,
+                                    headers=headers_dict,
+                                    content=request.content
+                                )
+                                logger.info(f"→ Using fast API key: {self.fast_api_key[:20]}...")
+                            else:
+                                logger.info(f"→ Same API key for both models")
+                        else:
+                            logger.info(f"→ Using main LLM endpoint (model != fast_model)")
                     
                     except Exception as e:
-                        logger.debug(f"Could not parse request for routing: {e}")
+                        logger.error(f"❌ Error in routing logic: {e}", exc_info=True)
                     
                     # Continue with cleaning and retry logic from parent class
                     return await super().handle_async_request(request)
