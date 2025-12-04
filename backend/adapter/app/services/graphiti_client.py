@@ -570,7 +570,10 @@ class GraphitiWrapper:
                         logger.error(f"❌ Error in routing logic: {e}", exc_info=True)
                     
                     # Continue with cleaning and retry logic from parent class
-                    return await super().handle_async_request(request)
+                    logger.info(f"⏳ Calling parent handler (CleaningHTTPTransport)...")
+                    response = await super().handle_async_request(request)
+                    logger.info(f"✓ Parent handler returned: status={response.status_code}")
+                    return response
             
             # Create dual-model routing transport
             routing_transport = DualModelRoutingTransport(
