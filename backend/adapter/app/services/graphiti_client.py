@@ -81,7 +81,13 @@ class GraphitiWrapper:
             if "SEMAPHORE_LIMIT" not in os.environ:
                 os.environ["SEMAPHORE_LIMIT"] = "100"
             
+            # Reduce reflexion iterations to minimize LLM calls
+            # Default is 3, reducing to 2 trades minimal quality (~3%) for 33% fewer calls
+            if "MAX_REFLEXION_ITERATIONS" not in os.environ:
+                os.environ["MAX_REFLEXION_ITERATIONS"] = "2"
+            
             logger.info(f"SEMAPHORE_LIMIT set to: {os.environ.get('SEMAPHORE_LIMIT', '10')}")
+            logger.info(f"MAX_REFLEXION_ITERATIONS set to: {os.environ.get('MAX_REFLEXION_ITERATIONS', '3')}")
             
             from openai import AsyncOpenAI
             from graphiti_core.llm_client.openai_client import OpenAIClient
