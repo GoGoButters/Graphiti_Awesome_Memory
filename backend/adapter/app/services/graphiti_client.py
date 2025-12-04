@@ -483,25 +483,109 @@ class GraphitiWrapper:
                             
                     return response
 
-            # Create AsyncOpenAI client for LLM using the custom http client
+            # Create custom HTTP transport for dual-model routing
+            # This allows llm and llm_fast to use different base_url and api_key
+            import httpx
+            import json
+            import re
+            from urllib.parse import urlparse, urlunparse
+            
+            class DualModelRoutingTransport(CleaningHTTPTransport):
+                """
+                Extended HTTP transport that routes requests to appropriate endpoint
+                based on model name in the request body, while preserving cleaning
+                and retry functionality from CleaningHTTPTransport.
+                """
+                def __init__(self, main_base_url, main_api_key, fast_base_url, fast_api_key, fast_model):
+                    super().__init__()
+                    self.main_base_url = main_base_url
+                    self.main_api_key = main_api_key
+                    self.fast_base_url = fast_base_url
+                    self.fast_api_key = fast_api_key
+                    self.fast_model = fast_model
+                    
+                    # Parse URLs for modification
+                    self.main_parsed = urlparse(main_base_url)
+                    self.fast_parsed = urlparse(fast_base_url)
+                
+                async def handle_async_request(self, request):
+                    # Determine which endpoint to use based on model in request
+                    try:
+                        body = request.content.decode('utf-8') if request.content else "{}"
+                        data = json.loads(body)
+                        model = data.get("model", "")
+                        
+                        # Route to fast endpoint if request is for fast model
+                        if model == self.fast_model and self.fast_base_url != self.main_base_url:
+                            # Modify request URL to point to fast endpoint
+                            req_parsed = urlparse(str(request.url))
+                            new_url = urlunparse((
+                                self.fast_parsed.scheme,
+                                self.fast_parsed.netloc,
+                                req_parsed.path,
+                                req_parsed.params,
+                                req_parsed.query,
+                                req_parsed.fragment
+                            ))
+                            
+                            # Create new request with modified URL
+                            headers_dict = dict(request.headers)
+                            request = httpx.Request(
+                                method=request.method,
+                                url=new_url,
+                                headers=headers_dict,
+                                content=request.content
+                            )
+                            logger.debug(f"Routing {model} to fast endpoint: {new_url}")
+                        
+                        # Update Authorization header if using different API key
+                        if model == self.fast_model and self.fast_api_key != self.main_api_key:
+                            headers_dict = dict(request.headers)
+                            headers_dict['authorization'] = f'Bearer {self.fast_api_key}'
+                            request = httpx.Request(
+                                method=request.method,
+                                url=request.url,
+                                headers=headers_dict,
+                                content=request.content
+                            )
+                            logger.debug(f"Using fast API key for {model}")
+                    
+                    except Exception as e:
+                        logger.debug(f"Could not parse request for routing: {e}")
+                    
+                    # Continue with cleaning and retry logic from parent class
+                    return await super().handle_async_request(request)
+            
+            # Create dual-model routing transport
+            routing_transport = DualModelRoutingTransport(
+                main_base_url=settings.LLM_BASE_URL,
+                main_api_key=settings.LLM_API_KEY,
+                fast_base_url=settings.LLM_FAST_BASE_URL,
+                fast_api_key=settings.LLM_FAST_API_KEY,
+                fast_model=settings.LLM_FAST_MODEL
+            )
+            
+            # Log configuration
+            logger.info(f"Dual-model routing configured:")
+            logger.info(f"  Main LLM: {settings.LLM_MODEL} at {settings.LLM_BASE_URL}")
+            logger.info(f"  Fast LLM: {settings.LLM_FAST_MODEL} at {settings.LLM_FAST_BASE_URL}")
+            if settings.LLM_FAST_BASE_URL != settings.LLM_BASE_URL:
+                logger.info(f"  ✓ Using separate endpoints for main and fast models")
+            if settings.LLM_FAST_API_KEY != settings.LLM_API_KEY:
+                logger.info(f"  ✓ Using separate API keys for main and fast models")
+            
             llm_async_client = AsyncOpenAI(
                 base_url=settings.LLM_BASE_URL,
                 api_key=settings.LLM_API_KEY,
-                http_client=httpx.AsyncClient(transport=CleaningHTTPTransport())
+                http_client=httpx.AsyncClient(transport=routing_transport)
             )
             
-            # Create LLM client with DUAL-MODEL strategy:
-            # - model: reasoning model for high-quality fact extraction
-            # - small_model: fast model for simple operations (deduplication, validation)
-            # This preserves quality while speeding up 80% of operations
-            
-            logger.info(f"Dual-model strategy: model={settings.LLM_MODEL}, small_model={settings.LLM_FAST_MODEL}")
-            
+            # Create LLM client with DUAL-MODEL strategy
             llm_client = OpenAIClient(
                 client=llm_async_client,
                 config=LLMConfig(
-                    model=settings.LLM_MODEL,        # Reasoning model for fact extraction
-                    small_model=settings.LLM_FAST_MODEL  # Fast model for simple operations
+                    model=settings.LLM_MODEL,
+                    small_model=settings.LLM_FAST_MODEL
                 )
             )
             
