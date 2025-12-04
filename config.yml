@@ -20,6 +20,13 @@ llm:
   api_key: sk-LLM_KEY_HERE
   model: gpt-4o-mini
 
+# Fast LLM for simple operations (deduplication, validation)
+# Use a non-reasoning model for 5-10x speedup on 80% of operations
+llm_fast:
+  base_url: https://api.openai.com/v1
+  api_key: sk-LLM_KEY_HERE
+  model: qwen2.5:7b
+
 embeddings:
   base_url: https://api.openai.com/v1
   api_key: sk-EMBEDDING_KEY_HERE

@@ -55,6 +55,11 @@ LLM_BASE_URL=$(get_config_value "llm.base_url")
 LLM_API_KEY=$(get_config_value "llm.api_key")
 LLM_MODEL=$(get_config_value "llm.model")
 
+# Fast LLM
+LLM_FAST_BASE_URL=$(get_config_value "llm_fast.base_url")
+LLM_FAST_API_KEY=$(get_config_value "llm_fast.api_key")
+LLM_FAST_MODEL=$(get_config_value "llm_fast.model")
+
 # Embeddings
 EMBEDDING_BASE_URL=$(get_config_value "embeddings.base_url")
 EMBEDDING_API_KEY=$(get_config_value "embeddings.api_key")
@@ -88,6 +93,10 @@ REDIS_URL=$REDIS_URL
 LLM_BASE_URL=$LLM_BASE_URL
 LLM_API_KEY=$LLM_API_KEY
 LLM_MODEL=$LLM_MODEL
+
+LLM_FAST_BASE_URL=$LLM_FAST_BASE_URL
+LLM_FAST_API_KEY=$LLM_FAST_API_KEY
+LLM_FAST_MODEL=$LLM_FAST_MODEL
 
 EMBEDDING_BASE_URL=$EMBEDDING_BASE_URL
 EMBEDDING_API_KEY=$EMBEDDING_API_KEY

@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     LLM_API_KEY: str
     LLM_MODEL: str = "gpt-4o-mini"
     
+    # Fast LLM (for simple operations like deduplication)
+    LLM_FAST_BASE_URL: str
+    LLM_FAST_API_KEY: str
+    LLM_FAST_MODEL: str = "qwen2.5:7b"
+    
     # Embeddings
     EMBEDDING_BASE_URL: str
     EMBEDDING_API_KEY: str
