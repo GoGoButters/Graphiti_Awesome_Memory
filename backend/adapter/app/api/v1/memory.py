@@ -39,8 +39,10 @@ async def append_memory(
         
         # background_tasks.add_task(process_episode, request.user_id, request.text, request.metadata)
         
-        # Real implementation with Graphiti:
-        # Execute in background to prevent timeouts
+        # 1. Save PendingEpisode immediately for instant UI feedback
+        await graphiti_client.save_pending_episode(request.user_id, request.text, request.metadata)
+        
+        # 2. Execute heavy processing in background
         background_tasks.add_task(graphiti_client.add_episode, request.user_id, request.text, request.metadata)
         
         return MemoryAppendResponse(

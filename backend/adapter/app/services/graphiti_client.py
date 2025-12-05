@@ -674,53 +674,6 @@ class GraphitiWrapper:
         metadata: Optional[Dict[str, Any]] = None
     ) -> str:
         """
-        Add an episode (memory) to the knowledge graph
-        
-        Args:
-            user_id: Unique identifier for the user
-            text: Text content of the episode
-            metadata: Optional metadata (role, source, etc.)
-            
-        Returns:
-            Episode ID/UUID
-        """
-        try:
-            # Create unique episode name
-            timestamp = datetime.now(timezone.utc).isoformat()
-            episode_name = f"{user_id}_{timestamp}"
-            
-            # Extract source from metadata
-            source_description = metadata.get("source", "api") if metadata else "api"
-            role = metadata.get("role", "user") if metadata else "user"
-            
-            logger.info(f"Adding episode for user {user_id}: {text[:50]}...")
-            
-            # Add episode to Graphiti with group_id for user isolation
-            await self.client.add_episode(
-                name=episode_name,
-                episode_body=text,
-                source=EpisodeType.text,
-                source_description=f"{source_description} ({role})",
-                reference_time=datetime.now(timezone.utc),
-                group_id=user_id  # Critical: isolate data by user
-            )
-            
-            logger.info(f"Successfully added episode: {episode_name}")
-            return episode_name
-            
-        except Exception as e:
-            logger.error(f"Error adding episode: {e}")
-            raise
-
-    async def search(
-        self,
-        user_id: str,
-        query: str,
-        limit: int = 10,
-        center_node_uuid: Optional[str] = None
-    ) -> List[MemoryHit]:
-        """
-        Search for relevant memories (edges) in the knowledge graph
         
         Args:
             user_id: User identifier (for filtering if needed)
@@ -949,27 +902,34 @@ class GraphitiWrapper:
 
     async def get_user_episodes(self, user_id: str, limit: int = None) -> list:
         """
-        Get list of episodes for a user
-        
-        Args:
-            user_id: User identifier
-            limit: Optional limit on number of episodes to return
-            
-        Returns:
-            List of episode dictionaries
+        Get list of episodes for a user, including pending ones.
         """
         try:
             logger.info(f"Getting episodes for user: {user_id}" + (f" (limit: {limit})" if limit else ""))
             driver = self.client.driver
             
-            # Build query with optional LIMIT clause
-            # Note: Graphiti stores episode content in 'content' field
+            # Query for both Episodic and PendingEpisode
+            # We use UNION ALL to get both, then sort by created_at
             query = """
+            // 1. Get processed episodes
             MATCH (e:Episodic)
             WHERE e.name STARTS WITH $user_prefix
             RETURN e.uuid as uuid, e.name as name, e.created_at as created_at, 
-                   e.source_description as source, e.content as content
-            ORDER BY e.created_at DESC
+                   e.source_description as source, 
+                   coalesce(e.content, e.episode_body, "") as content,
+                   'processed' as status
+            
+            UNION ALL
+            
+            // 2. Get pending episodes
+            MATCH (p:PendingEpisode)
+            WHERE p.user_id = $user_id
+            RETURN p.uuid as uuid, "pending_" + p.uuid as name, p.created_at as created_at,
+                   p.source as source,
+                   p.content as content,
+                   'pending' as status
+            
+            ORDER BY created_at DESC
             """
             
             if limit is not None and limit > 0:
@@ -978,6 +938,7 @@ class GraphitiWrapper:
             result = await driver.execute_query(
                 query,
                 user_prefix=f"{user_id}_",
+                user_id=user_id,
                 database_="neo4j"
             )
             
@@ -989,15 +950,20 @@ class GraphitiWrapper:
                         created_at = created_at.iso_format()
                     elif hasattr(created_at, 'to_native'):
                         created_at = created_at.to_native()
-                    # Try both content fields (Graphiti might use different field names)
-                    body = record.get("content") or record.get("episode_body") or ""
                         
                     episodes.append({
                         "uuid": record["uuid"],
                         "created_at": str(created_at),
                         "source": record["source"],
-                        "content": body  # Return full content
+                        "content": record["content"],
+                        "status": record["status"]
                     })
+            
+            return episodes
+            
+        except Exception as e:
+            logger.error(f"Error getting episodes for user {user_id}: {e}")
+            raise e
             
             return episodes
             
