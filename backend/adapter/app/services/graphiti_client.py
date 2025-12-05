@@ -668,6 +668,108 @@ class GraphitiWrapper:
             logger.error(f"Failed to initialize Graphiti client: {e}")
             raise
 
+    async def save_pending_episode(self, user_id: str, text: str, metadata: Optional[Dict[str, Any]] = None) -> str:
+        """
+        Save a temporary PendingEpisode node to make the message immediately available
+        before heavy processing completes.
+        """
+        try:
+            driver = self.client.driver
+            uuid_str = str(uuid.uuid4())
+            # Use ISO format string for consistency with Graphiti
+            created_at = datetime.now(timezone.utc).isoformat()
+            
+            source = "User"
+            if metadata and "source" in metadata:
+                source = metadata["source"]
+            
+            query = """
+            MERGE (u:User {id: $user_id})
+            CREATE (p:PendingEpisode {
+                uuid: $uuid,
+                content: $text,
+                created_at: $created_at,
+                source: $source,
+                status: 'pending',
+                user_id: $user_id
+            })
+            MERGE (u)-[:HAS_PENDING]->(p)
+            RETURN p.uuid as uuid
+            """
+            
+            await driver.execute_query(
+                query,
+                user_id=user_id,
+                uuid=uuid_str,
+                text=text,
+                created_at=created_at,
+                source=source,
+                database_="neo4j"
+            )
+            
+            logger.info(f"Saved PendingEpisode for user {user_id}: {uuid_str}")
+            return uuid_str
+        except Exception as e:
+            logger.error(f"Error saving pending episode: {e}")
+            return None
+
+    async def delete_pending_episode(self, user_id: str, text: str):
+        """
+        Delete a PendingEpisode node after successful processing.
+        Matches by content and user_id since UUID might differ.
+        """
+        try:
+            driver = self.client.driver
+            query = """
+            MATCH (p:PendingEpisode)
+            WHERE p.user_id = $user_id AND p.content = $text
+            DETACH DELETE p
+            """
+            await driver.execute_query(
+                query,
+                user_id=user_id,
+                text=text,
+                database_="neo4j"
+            )
+            logger.info(f"Cleaned up PendingEpisode for user {user_id}")
+        except Exception as e:
+            logger.error(f"Error deleting pending episode: {e}")
+
+    async def get_stuck_pending_episodes(self, minutes: int = 30) -> list:
+        """
+        Get PendingEpisodes older than X minutes that might be stuck.
+        """
+        try:
+            driver = self.client.driver
+            # Calculate cutoff time as ISO string
+            cutoff = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
+            
+            query = """
+            MATCH (p:PendingEpisode)
+            WHERE p.created_at < $cutoff
+            RETURN p.user_id as user_id, p.content as content, p.source as source, p.uuid as uuid
+            """
+            
+            result = await driver.execute_query(
+                query,
+                cutoff=cutoff,
+                database_="neo4j"
+            )
+            
+            stuck = []
+            if result.records:
+                for record in result.records:
+                    stuck.append({
+                        "user_id": record["user_id"],
+                        "content": record["content"],
+                        "source": record["source"],
+                        "uuid": record["uuid"]
+                    })
+            return stuck
+        except Exception as e:
+            logger.error(f"Error getting stuck episodes: {e}")
+            return []
+
     async def add_episode(
         self,
         user_id: str,
@@ -675,15 +777,53 @@ class GraphitiWrapper:
         metadata: Optional[Dict[str, Any]] = None
     ) -> str:
         """
+        Add an episode (memory) to the knowledge graph.
+        Called as background task after save_pending_episode.
+        """
+        # 1. Create episode name
+        timestamp = datetime.now(timezone.utc).isoformat()
+        episode_name = f"{user_id}_{timestamp}"
         
-        Args:
-            user_id: User identifier (for filtering if needed)
-            query: Search query
-            limit: Maximum number of results
-            center_node_uuid: Optional UUID for graph-distance reranking
+        source_description = "User Input"
+        role = "user"
+        if metadata:
+            source_description = metadata.get("source", source_description)
+            role = metadata.get("role", role)
             
-        Returns:
-            List of MemoryHit objects
+        logger.info(f"Adding episode for user {user_id} (len: {len(text)})")
+        
+        try:
+            # 2. Add to Graphiti
+            await self.client.add_episode(
+                name=episode_name,
+                episode_body=text,
+                source=EpisodeType.text,
+                source_description=f"{source_description} ({role})",
+                reference_time=datetime.now(timezone.utc),
+                group_id=user_id  # Critical: isolate data by user
+            )
+            
+            logger.info(f"Successfully added episode: {episode_name}")
+            
+            # 3. Cleanup PendingEpisode after successful processing
+            await self.delete_pending_episode(user_id, text)
+            
+            return episode_name
+            
+        except Exception as e:
+            logger.error(f"Error adding episode {episode_name}: {e}")
+            # We DO NOT delete the pending episode on error, so retry logic can pick it up
+            raise e
+
+    async def search(
+        self,
+        user_id: str,
+        query: str,
+        limit: int = 10,
+        center_node_uuid: Optional[str] = None
+    ) -> List[MemoryHit]:
+        """
+        Search for relevant memories (edges) in the knowledge graph
         """
         try:
             logger.info(f"Searching for user {user_id}: {query}")
