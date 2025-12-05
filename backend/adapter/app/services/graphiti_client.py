@@ -728,11 +728,245 @@ class GraphitiWrapper:
             Graph structure with nodes and edges
         """
         try:
+            logger.info(f"Getting graph for user {user_id}")
+            
+            # Get Neo4j driver from Graphiti client
+            driver = self.client.driver
+            
+            # Query nodes and edges filtered by group_id
+            query = """
+            MATCH (n:Entity)
+            WHERE n.group_id = $group_id
+            OPTIONAL MATCH (n)-[r]-(m:Entity)
+            
+            WITH n, r, m
+            UNWIND [n, m] as node
+            WITH node, r
+            WHERE node IS NOT NULL
+            
+            RETURN 
+                collect(DISTINCT node) as nodes,
+                collect(DISTINCT {
+                    uuid: r.uuid,
+                    source: startNode(r).uuid,
+                    target: endNode(r).uuid,
+                    fact: r.fact
+                }) as edges
+            """
+            
+            result = await driver.execute_query(
+                query,
+                group_id=user_id,
+                database_="neo4j"
+            )
+            
+            # Convert to Cytoscape.js format
+            nodes = []
+            edges = []
+            
+            if result.records:
+                record = result.records[0]
+                
+                # Process nodes
+                for node in record["nodes"]:
+                    nodes.append({
+                        "data": {
+                            "id": node["uuid"] if "uuid" in node else str(node.id),
+                            "label": node["name"] if "name" in node else "Unknown",
+                            "summary": (node["summary"][:200] if "summary" in node and node["summary"] else ""),
+                            "created_at": str(node["created_at"]) if "created_at" in node and node["created_at"] else None,
+                        }
+                    })
+                
+                # Process edges
+                for edge in record["edges"]:
+                    if edge and edge.get("source") and edge.get("target"):  # Ensure source/target exist
+                        edges.append({
+                            "data": {
+                                "id": edge["uuid"] if edge.get("uuid") else f"{edge['source']}_{edge['target']}",
+                                "source": edge["source"],
+                                "target": edge["target"],
+                                "label": (edge["fact"][:100] if edge.get("fact") else ""),
+                            }
+                        })
+            
+            logger.info(f"Retrieved {len(nodes)} nodes and {len(edges)} edges for user {user_id}")
+            
+            return {
+                "nodes": nodes,
+                "edges": edges
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting user graph: {e}")
+            return {"nodes": [], "edges": []}
+
+    async def get_summary(self, user_id: str) -> str:
+        """
+        Generate a summary of user's knowledge graph
+        
+        Args:
+            user_id: User identifier
+            
+        Returns:
+            Text summary
+        """
+        try:
+            # Search for user-related facts
+            results = await self.search(user_id, f"facts about {user_id}", limit=10)
+            
+            if not results:
+                return f"No information found for user {user_id}"
+            
+            # Build summary from top facts
+            summary_parts = [f"Knowledge summary for {user_id}:"]
+            for i, hit in enumerate(results[:5], 1):
+                summary_parts.append(f"{i}. {hit.fact}")
+            
+            return "\n".join(summary_parts)
+            
+        except Exception as e:
+            logger.error(f"Error generating summary: {e}")
+            return f"Error generating summary: {str(e)}"
+    
+    async def delete_user(self, user_id: str) -> bool:
+        """
+        Delete all data for a user from Neo4j
+        
+        Args:
+            user_id: User identifier
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            logger.info(f"Deleting all data for user: {user_id}")
+            
+            # Strategy:
+            # 1. Find and delete all episodes for this user (by name pattern)
+            # 2. Delete nodes that are only connected to these episodes
+            # 3. Delete edges that reference deleted nodes
+            
+            # Get Neo4j driver from graphiti client
+            driver = self.client.driver
+            
+            # Cypher query to delete episodes and their associated data
+            query = """
+            // Find all episodes for this user
+            MATCH (e:Episodic)
+            WHERE e.name STARTS WITH $user_prefix
+            
+            // Match connected nodes
+            OPTIONAL MATCH (e)--(n)
+            
+            // Use DETACH DELETE to automatically remove all relationships
+            DETACH DELETE e, n
+            
+            RETURN count(DISTINCT e) as episodes_deleted
+            """
+            
+            # Execute deletion by episode connection
+            result = await driver.execute_query(
+                query,
+                user_prefix=f"{user_id}_",
+                database_="neo4j"
+            )
+            
+            episodes_deleted = result.records[0]["episodes_deleted"] if result.records else 0
+            
+            # Fallback: Delete by group_id if it exists (handles orphaned nodes)
+            # Graphiti often uses group_id for tenancy
+            cleanup_query = """
+            MATCH (n)
+            WHERE n.group_id = $user_id
+            DETACH DELETE n
+            RETURN count(n) as nodes_deleted
+            """
+            
+            cleanup_result = await driver.execute_query(
+                cleanup_query,
+                user_id=user_id,
+                database_="neo4j"
+            )
+            
+            nodes_deleted = cleanup_result.records[0]["nodes_deleted"] if cleanup_result.records else 0
+            
+            logger.info(f"Deleted {episodes_deleted} episodes and {nodes_deleted} orphaned nodes for user {user_id}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error deleting user {user_id}: {e}")
+            return False
+
+    async def get_user_episodes(self, user_id: str, limit: int = None) -> list:
+        """
+        Get list of episodes for a user, including pending ones.
+        """
+        try:
+            logger.info(f"Getting episodes for user: {user_id}" + (f" (limit: {limit})" if limit else ""))
+            driver = self.client.driver
+            
+            # Query for both Episodic and PendingEpisode
+            # We use UNION ALL to get both, then sort by created_at
+            # Using toString() to ensure consistent type for sorting
+            query = """
+            // 1. Get processed episodes
+            MATCH (e:Episodic)
+            WHERE e.name STARTS WITH $user_prefix
+            RETURN e.uuid as uuid, e.name as name, toString(e.created_at) as created_at, 
+                   e.source_description as source, 
+                   coalesce(e.content, e.episode_body, "") as content,
+                   'processed' as status
+            
+            UNION ALL
+            
+            // 2. Get pending episodes
+            MATCH (p:PendingEpisode)
+            WHERE p.user_id = $user_id
+            RETURN p.uuid as uuid, "pending_" + p.uuid as name, toString(p.created_at) as created_at,
+                   p.source as source,
+                   p.content as content,
+                   'pending' as status
+            
+            ORDER BY created_at DESC
+            """
+            
+            if limit is not None and limit > 0:
+                query += f"\nLIMIT {limit}"
+            
+            result = await driver.execute_query(
+                query,
+                user_prefix=f"{user_id}_",
+                user_id=user_id,
+                database_="neo4j"
+            )
+            
+            episodes = []
+            pending_count = 0
+            processed_count = 0
+            
+            if result.records:
+                for record in result.records:
+                    if record["status"] == "pending":
+                        pending_count += 1
+                    else:
+                        processed_count += 1
+                        
+                    episodes.append({
+                        "uuid": record["uuid"],
+                        "created_at": record["created_at"],
+                        "source": record["source"],
+                        "content": record["content"],
+                        "status": record["status"]
+                    })
+            
+            logger.info(f"Found {len(episodes)} episodes ({processed_count} processed, {pending_count} pending)")
             return episodes
             
         except Exception as e:
             logger.error(f"Error getting episodes for user {user_id}: {e}")
-            return []
+            raise e
 
     async def delete_episode(self, episode_uuid: str) -> bool:
         """
