@@ -37,6 +37,9 @@ def mock_graphiti():
         # Mock add_episode
         mock_client.add_episode = AsyncMock(return_value="test_episode_id")
         
+        # Mock save_pending_episode
+        mock_client.save_pending_episode = AsyncMock(return_value="test_uuid")
+        
         # Mock search
         from app.models.schemas import MemoryHit
         from datetime import datetime
