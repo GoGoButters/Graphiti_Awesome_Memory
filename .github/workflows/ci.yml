@@ -9,6 +9,21 @@ on:
 jobs:
   test-adapter:
     runs-on: ubuntu-latest
+    services:
+      neo4j:
+        image: neo4j:5-community
+        ports:
+          - 7474:7474
+          - 7687:7687
+        env:
+          NEO4J_AUTH: neo4j/password
+          NEO4J_PLUGINS: '["apoc"]'
+        options: --health-cmd "cypher-shell -u neo4j -p password 'RETURN 1'" --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:alpine
+        ports:
+          - 6379:6379
+        options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
     steps:
     - uses: actions/checkout@v3
     
@@ -42,6 +57,8 @@ jobs:
         JWT_SECRET: test-secret
         ADMIN_USERNAME: admin
         ADMIN_PASSWORD: password
+        LLM_FAST_BASE_URL: https://api.openai.com/v1
+        LLM_FAST_API_KEY: sk-test
       run: |
         cd backend/adapter
         export PYTHONPATH=$PYTHONPATH:.
