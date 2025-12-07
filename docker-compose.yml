@@ -35,8 +35,8 @@ services:
       - "${ADAPTER_PORT:-8000}:8000"
     environment:
       # Increase concurrent LLM operations for faster processing
-      # Default is ~10, we set to 100 for local LLM server
-      - SEMAPHORE_LIMIT=100
+      # Default is ~10, we set to 20 to balance speed and rate limits
+      - SEMAPHORE_LIMIT=20
     env_file:
       - .env.adapter
     security_opt:

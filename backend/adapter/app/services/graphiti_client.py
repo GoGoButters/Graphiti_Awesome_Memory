@@ -78,9 +78,9 @@ class GraphitiWrapper:
             
             # Set SEMAPHORE_LIMIT for Graphiti's internal concurrency control
             # This allows parallel LLM operations instead of sequential processing
-            # Default is 10, we increase to 100 for faster processing
+            # Default is 10, we increase to 20 for faster processing without hitting rate limits
             if "SEMAPHORE_LIMIT" not in os.environ:
-                os.environ["SEMAPHORE_LIMIT"] = "100"
+                os.environ["SEMAPHORE_LIMIT"] = "20"
             
             # Reduce reflexion iterations to minimize LLM calls
             # Default is 3, reducing to 2 trades minimal quality (~3%) for 33% fewer calls
