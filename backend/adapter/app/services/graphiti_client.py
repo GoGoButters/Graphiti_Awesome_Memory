@@ -522,7 +522,14 @@ class GraphitiWrapper:
                     
                     try:
                         body = request.content.decode('utf-8') if request.content else "{}"
-                        data = json.loads(body)
+                        try:
+                            data = json.loads(body)
+                            # Handle case where body is not a valid JSON (e.g. empty string)
+                            if not isinstance(data, dict):
+                                data = {}
+                        except json.JSONDecodeError:
+                            data = {}
+                            
                         model = data.get("model", "")
                         
                         logger.info(f"🔍 Routing request: model={model}, url={original_url}")
@@ -557,19 +564,19 @@ class GraphitiWrapper:
                             else:
                                 logger.info(f"→ Same endpoint for both models, no URL change needed")
                             
-                            # Update Authorization header if using different API key
-                            if self.fast_api_key != self.main_api_key:
-                                headers_dict = dict(request.headers)
-                                headers_dict['authorization'] = f'Bearer {self.fast_api_key}'
-                                request = httpx.Request(
-                                    method=request.method,
-                                    url=request.url,
-                                    headers=headers_dict,
-                                    content=request.content
-                                )
-                                logger.info(f"→ Using fast API key: {self.fast_api_key[:20]}...")
-                            else:
-                                logger.info(f"→ Same API key for both models")
+                            # Always update Authorization header to ensure correct key is used for fast model
+                            # This avoids issues where keys might look identical or checks fail
+                            headers_dict = dict(request.headers)
+                            headers_dict['authorization'] = f'Bearer {self.fast_api_key}'
+                            
+                            request = httpx.Request(
+                                method=request.method,
+                                url=request.url,
+                                headers=headers_dict,
+                                content=request.content
+                            )
+                            masked_key = self.fast_api_key[:10] + "..." if self.fast_api_key else "None"
+                            logger.info(f"→ Switched to fast API key: {masked_key}")
                         else:
                             logger.info(f"→ Using main LLM endpoint (model != fast_model)")
                     
