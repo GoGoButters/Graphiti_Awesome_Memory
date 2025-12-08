@@ -1080,14 +1080,19 @@ class GraphitiWrapper:
             ORDER BY created_at DESC
             """
             
+            params = {
+                "user_prefix": f"{user_id}_",
+                "user_id": user_id,
+                "database_": "neo4j"
+            }
+            
             if limit is not None and limit > 0:
-                query += f"\nLIMIT {limit}"
+                query += "\nLIMIT $limit"
+                params["limit"] = limit
             
             result = await driver.execute_query(
                 query,
-                user_prefix=f"{user_id}_",
-                user_id=user_id,
-                database_="neo4j"
+                **params
             )
             
             episodes = []
