@@ -1052,31 +1052,31 @@ class GraphitiWrapper:
         Get list of episodes for a user, including pending ones.
         """
         try:
-            logger.info(f"Getting episodes for user: {user_id}" + (f" (limit: {limit})" if limit else ""))
+            logger.info(f"Getting episodes for user: {user_id} limit={limit} type={type(limit)}")
             driver = self.client.driver
             
-            # Query for both Episodic and PendingEpisode
-            # We use UNION ALL to get both, then sort by created_at
-            # Using toString() to ensure consistent type for sorting
+            # Use CALL subquery to properly wrap UNION and apply LIMIT to the final result
             query = """
-            // 1. Get processed episodes
-            MATCH (e:Episodic)
-            WHERE e.name STARTS WITH $user_prefix
-            RETURN e.uuid as uuid, e.name as name, toString(e.created_at) as created_at, 
-                   e.source_description as source, 
-                   coalesce(e.content, e.episode_body, "") as content,
-                   'processed' as status
-            
-            UNION ALL
-            
-            // 2. Get pending episodes
-            MATCH (p:PendingEpisode)
-            WHERE p.user_id = $user_id
-            RETURN p.uuid as uuid, "pending_" + p.uuid as name, toString(p.created_at) as created_at,
-                   p.source as source,
-                   p.content as content,
-                   'pending' as status
-            
+            CALL {
+                // 1. Get processed episodes
+                MATCH (e:Episodic)
+                WHERE e.name STARTS WITH $user_prefix
+                RETURN e.uuid as uuid, e.name as name, toString(e.created_at) as created_at, 
+                       e.source_description as source, 
+                       coalesce(e.content, e.episode_body, "") as content,
+                       'processed' as status
+                
+                UNION ALL
+                
+                // 2. Get pending episodes
+                MATCH (p:PendingEpisode)
+                WHERE p.user_id = $user_id
+                RETURN p.uuid as uuid, "pending_" + p.uuid as name, toString(p.created_at) as created_at,
+                       p.source as source,
+                       p.content as content,
+                       'pending' as status
+            }
+            RETURN uuid, name, created_at, source, content, status
             ORDER BY created_at DESC
             """
             
