@@ -237,12 +237,19 @@ class GraphitiWrapper:
                                             # Detect if this is a list of edges or entities
                                             # Edges have source_entity_id and target_entity_id
                                             # Entities have name or entity_name
-                                                logger.info("Fixing JSON: Empty/unknown list, wrapping in both 'extracted_entities' and 'edges'")
+                                            if len(parsed) > 0 and isinstance(parsed[0], dict) and ("source_entity_id" in parsed[0] or "relation_type" in parsed[0]):
+                                                logger.info("Fixing JSON: List found (edges detected), wrapping in 'edges'")
+                                                parsed = {
+                                                    "edges": parsed,
+                                                    "extracted_entities": []
+                                                }
+                                            else:
+                                                logger.info("Fixing JSON: List found (entities detected), wrapping in 'extracted_entities'")
                                                 parsed = {
                                                     "extracted_entities": parsed,
                                                     "edges": []
                                                 }
-                                                modified = True
+                                            modified = True
                                         elif isinstance(parsed, dict) and "entities" in parsed:
                                             logger.info("Fixing JSON: Renaming 'entities' to 'extracted_entities'")
                                             parsed["extracted_entities"] = parsed.pop("entities")
@@ -401,8 +408,19 @@ class GraphitiWrapper:
                                             modified = False
                                             
                                             if isinstance(parsed, list):
-                                                logger.info("Fixing JSON: List found, wrapping in 'extracted_entities'")
-                                                parsed = {"extracted_entities": parsed}
+                                                # Detect if this is a list of edges or entities (LiteLLM path)
+                                                if len(parsed) > 0 and isinstance(parsed[0], dict) and ("source_entity_id" in parsed[0] or "relation_type" in parsed[0]):
+                                                    logger.info("Fixing JSON: List found (edges detected), wrapping in 'edges'")
+                                                    parsed = {
+                                                        "edges": parsed,
+                                                        "extracted_entities": []
+                                                    }
+                                                else:
+                                                    logger.info("Fixing JSON: List found (entities detected), wrapping in 'extracted_entities'")
+                                                    parsed = {
+                                                        "extracted_entities": parsed,
+                                                        "edges": []
+                                                    }
                                                 modified = True
                                             elif isinstance(parsed, dict) and "entities" in parsed:
                                                 logger.info("Fixing JSON: Renaming 'entities' to 'extracted_entities'")
