@@ -522,12 +522,16 @@ class GraphitiWrapper:
                     
                     try:
                         body = request.content.decode('utf-8') if request.content else "{}"
-                        try:
-                            data = json.loads(body)
-                            # Handle case where body is not a valid JSON (e.g. empty string)
-                            if not isinstance(data, dict):
-                                data = {}
-                        except json.JSONDecodeError:
+                        try:                                                                                                                                                                                             
+                            # Use original json.loads to avoid our global patch affecting request parsing                                                                                                
+                            data = _original_json_loads(body)                                                                                                                                            
+                            # Handle case where body is not a valid JSON (e.g. empty string)                                                                                                             
+                            if not isinstance(data, dict):                                                                                                                                               
+                                data = {}                                                                                                                                                                
+                        except json.JSONDecodeError:                                                                                                                                                     
+                            # Only log if body is not empty but failed to parse                                                                                                                          
+                            if body.strip():                                                                                                                                                             
+                                logger.warning(f"Failed to parse request body JSON: {body[:100]}...")                                                                                                    
                             data = {}
                             
                         model = data.get("model", "")
