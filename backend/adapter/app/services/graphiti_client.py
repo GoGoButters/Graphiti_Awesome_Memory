@@ -861,7 +861,7 @@ class GraphitiWrapper:
             results = await self.client.search(
                 query=query,
                 center_node_uuid=center_node_uuid,
-                limit=limit
+                num_results=limit
             )
             
             # Convert to MemoryHit format
