@@ -842,7 +842,8 @@ class GraphitiWrapper:
             # Perform hybrid search (semantic + BM25)
             results = await self.client.search(
                 query=query,
-                center_node_uuid=center_node_uuid
+                center_node_uuid=center_node_uuid,
+                limit=limit
             )
             
             # Convert to MemoryHit format
