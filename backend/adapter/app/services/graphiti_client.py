@@ -76,6 +76,9 @@ class RemoteRerankerClient(CrossEncoderClient):
     """
     def __init__(self, base_url: str, api_key: str, model: str):
         self.base_url = base_url.rstrip('/')
+        if self.base_url.endswith('/v1'):
+            self.base_url = self.base_url[:-3]
+            
         self.api_key = api_key
         self.model = model
         self.client = httpx.AsyncClient(timeout=30.0)
