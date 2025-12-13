@@ -11,7 +11,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone, timedelta
 from graphiti_core import Graphiti
 from graphiti_core.nodes import EpisodeType
-from graphiti_core.search.search_config_recipes import NODE_HYBRID_SEARCH_RRF
+from graphiti_core.search.search_config_recipes import NODE_HYBRID_SEARCH_RRF, COMBINED_HYBRID_SEARCH_CROSS_ENCODER
 
 from app.core.config import settings
 from app.models.schemas import MemoryHit
@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 # Global monkey patch for json.loads to clean LLM responses
 import json
 import re
+import copy
 
 _original_json_loads = json.loads
 
@@ -857,12 +858,20 @@ class GraphitiWrapper:
         try:
             logger.info(f"Searching for user {user_id}: {query}")
             
-            # Perform hybrid search (semantic + BM25)
-            results = await self.client.search(
+            # Perform hybrid search with RERANKER (using search_)
+            # We must copy the config to set the limit safely
+            search_config = copy.deepcopy(COMBINED_HYBRID_SEARCH_CROSS_ENCODER)
+            search_config.limit = limit
+            
+            # search_ returns SearchResults object containing nodes and edges
+            search_results = await self.client.search_(
                 query=query,
                 center_node_uuid=center_node_uuid,
-                num_results=limit
+                config=search_config
             )
+            
+            # Extract edges from results
+            results = search_results.edges
             
             # Convert to MemoryHit format
             hits = []
