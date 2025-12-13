@@ -12,6 +12,7 @@ from datetime import datetime, timezone, timedelta
 from graphiti_core import Graphiti
 from graphiti_core.nodes import EpisodeType
 from graphiti_core.search.search_config_recipes import NODE_HYBRID_SEARCH_RRF, COMBINED_HYBRID_SEARCH_CROSS_ENCODER
+from graphiti_core.cross_encoder.client import CrossEncoderClient
 
 from app.core.config import settings
 from app.models.schemas import MemoryHit
@@ -64,6 +65,60 @@ def _patched_json_loads(s, *args, **kwargs):
 
 json.loads = _patched_json_loads
 
+
+
+json.loads = _patched_json_loads
+
+class RemoteRerankerClient(CrossEncoderClient):
+    """
+    Custom CrossEncoder client for remote reranker servers (e.g. llama.cpp, Jina).
+    Sends POST requests to /v1/rerank compatible endpoints.
+    """
+    def __init__(self, base_url: str, api_key: str, model: str):
+        self.base_url = base_url.rstrip('/')
+        self.api_key = api_key
+        self.model = model
+        self.client = httpx.AsyncClient(timeout=30.0)
+
+    async def rank(self, query: str, passages: list[str]) -> list[tuple[str, float]]:
+        if not passages:
+            return []
+
+        url = f"{self.base_url}/v1/rerank"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": self.model,
+            "query": query,
+            "documents": passages,
+            "top_n": len(passages)  # Return all, sorted
+        }
+
+        try:
+            logger.info(f"Reranking {len(passages)} passages via {url}")
+            response = await self.client.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            
+            data = response.json()
+            # Expecting Jina/Cohere format: {"results": [{"index": i, "relevance_score": s}, ...]}
+            results = data.get("results", [])
+            
+            # Map results back to passages
+            ranked = []
+            for res in results:
+                idx = res.get("index")
+                score = res.get("relevance_score")
+                if idx is not None and 0 <= idx < len(passages):
+                    ranked.append((passages[idx], float(score)))
+            
+            logger.info(f"Rerank success, top score: {ranked[0][1] if ranked else 'none'}")
+            return ranked
+            
+        except Exception as e:
+            logger.error(f"Remote reranking failed: {e}")
+            raise e
 
 
 class GraphitiWrapper:
@@ -662,21 +717,11 @@ class GraphitiWrapper:
                 )
             )
             
-            # Create AsyncOpenAI client for reranker
-            reranker_async_client = AsyncOpenAI(
+            # Create reranker client
+            reranker = RemoteRerankerClient(
                 base_url=settings.RERANKER_BASE_URL,
                 api_key=settings.RERANKER_API_KEY,
-                http_client=httpx.AsyncClient(transport=CleaningHTTPTransport())
-            )
-            
-            # Create reranker client
-            reranker = OpenAIRerankerClient(
-                client=reranker_async_client,
-                config=LLMConfig(
-                    model=settings.RERANKER_MODEL,
-                    api_key=settings.RERANKER_API_KEY,
-                    base_url=settings.RERANKER_BASE_URL
-                )
+                model=settings.RERANKER_MODEL
             )
             
             # Initialize Graphiti with custom clients
@@ -863,15 +908,25 @@ class GraphitiWrapper:
             search_config = copy.deepcopy(COMBINED_HYBRID_SEARCH_CROSS_ENCODER)
             search_config.limit = limit
             
-            # search_ returns SearchResults object containing nodes and edges
-            search_results = await self.client.search_(
-                query=query,
-                center_node_uuid=center_node_uuid,
-                config=search_config
-            )
-            
-            # Extract edges from results
-            results = search_results.edges
+            try:
+                # search_ returns SearchResults object containing nodes and edges
+                search_results = await self.client.search_(
+                    query=query,
+                    center_node_uuid=center_node_uuid,
+                    config=search_config
+                )
+                # Extract edges from results
+                results = search_results.edges
+                logger.info(f"✓ Reranker search successful, got {len(results)} results")
+                
+            except Exception as e:
+                logger.warning(f"⚠️ Reranker search failed ({e}), falling back to basic search")
+                # Fallback to basic search (no reranker)
+                results = await self.client.search(
+                    query=query,
+                    center_node_uuid=center_node_uuid,
+                    num_results=limit
+                )
             
             # Convert to MemoryHit format
             hits = []
