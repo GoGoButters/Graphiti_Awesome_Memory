@@ -19,10 +19,10 @@ from app.models.schemas import MemoryHit
 
 logger = logging.getLogger(__name__)
 
-# Global monkey patch for json.loads to clean LLM responses
 import json
 import re
 import copy
+import httpx
 
 _original_json_loads = json.loads
 
