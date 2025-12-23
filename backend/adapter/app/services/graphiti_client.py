@@ -758,8 +758,10 @@ class GraphitiWrapper:
             created_at = datetime.now(timezone.utc).isoformat()
             
             source = "User"
-            if metadata and "source" in metadata:
-                source = metadata["source"]
+            file_name = None
+            if metadata:
+                source = metadata.get("source", source)
+                file_name = metadata.get("file_name")
             
             query = """
             MERGE (u:User {id: $user_id})
@@ -768,6 +770,7 @@ class GraphitiWrapper:
                 content: $text,
                 created_at: $created_at,
                 source: $source,
+                file_name: $file_name,
                 status: 'pending',
                 user_id: $user_id
             })
@@ -782,10 +785,11 @@ class GraphitiWrapper:
                 text=text,
                 created_at=created_at,
                 source=source,
+                file_name=file_name,
                 database_="neo4j"
             )
             
-            logger.info(f"Saved PendingEpisode for user {user_id}: {uuid_str}")
+            logger.info(f"Saved PendingEpisode for user {user_id}: {uuid_str} (file: {file_name})")
             return uuid_str
         except Exception as e:
             logger.error(f"Error saving pending episode: {e}")
@@ -864,11 +868,13 @@ class GraphitiWrapper:
         
         source_description = "User Input"
         role = "user"
+        file_name = None
         if metadata:
             source_description = metadata.get("source", source_description)
             role = metadata.get("role", role)
+            file_name = metadata.get("file_name")
             
-        logger.info(f"Adding episode for user {user_id} (len: {len(text)})")
+        logger.info(f"Adding episode for user {user_id} (len: {len(text)}) (file: {file_name})")
         
         try:
             # 2. Add to Graphiti
@@ -881,9 +887,20 @@ class GraphitiWrapper:
                 group_id=user_id  # Critical: isolate data by user
             )
             
+            # 3. Tag with file_name if provided (Post-processing check)
+            if file_name:
+                driver = self.client.driver
+                tag_query = """
+                MATCH (e:Episodic {name: $name})
+                SET e.file_name = $file_name
+                RETURN e
+                """
+                await driver.execute_query(tag_query, name=episode_name, file_name=file_name, database_="neo4j")
+                logger.debug(f"Tagged episode {episode_name} with file_name: {file_name}")
+
             logger.info(f"Successfully added episode: {episode_name}")
             
-            # 3. Cleanup PendingEpisode after successful processing
+            # 4. Cleanup PendingEpisode after successful processing
             await self.delete_pending_episode(user_id, text)
             
             return episode_name
@@ -1210,6 +1227,94 @@ class GraphitiWrapper:
         except Exception as e:
             logger.error(f"Error getting episodes for user {user_id}: {e}")
             raise e
+
+    async def delete_file_episodes(self, user_id: str, file_name: str) -> bool:
+        """
+        Delete all episodes for a specific user and file_name, 
+        and cleanup orphaned nodes and edges.
+        """
+        try:
+            logger.info(f"Deleting all episodes for user {user_id} with file_name: {file_name}")
+            driver = self.client.driver
+            
+            # Step 1: Find episodes and identify orphaned entities
+            query1 = """
+            // Find all episodes matching file_name and user_id
+            MATCH (e:Episodic)
+            WHERE e.file_name = $file_name AND (e.name STARTS WITH $user_prefix OR e.group_id = $user_id)
+            
+            // Collect uuid for logging
+            WITH e, e.uuid as uuid
+            
+            // Find all entities mentioned by these episodes
+            OPTIONAL MATCH (e)-[:MENTIONS]->(entity:Entity)
+            WITH collect(DISTINCT e) as target_episodes, collect(DISTINCT entity) as file_entities
+            
+            // Delete the episodes first
+            FOREACH (ep IN target_episodes | DETACH DELETE ep)
+            
+            // Check which entities became orphaned (no other episodes mention them)
+            WITH file_entities
+            UNWIND file_entities as entity
+            OPTIONAL MATCH (entity)<-[:MENTIONS]-(other_episode:Episodic)
+            WITH entity, count(other_episode) as other_refs
+            WHERE other_refs = 0
+            
+            // Delete orphaned entities
+            WITH collect(entity) as orphaned_entities
+            FOREACH (orphan IN orphaned_entities | DETACH DELETE orphan)
+            
+            RETURN size(orphaned_entities) as deleted_entities, size(file_entities) as sampled_entities
+            """
+            
+            result1 = await driver.execute_query(
+                query1,
+                user_id=user_id,
+                user_prefix=f"{user_id}_",
+                file_name=file_name,
+                database_="neo4j"
+            )
+            
+            deleted_entities = result1.records[0]["deleted_entities"] if result1.records else 0
+            
+            # Step 2: Cleanup any orphaned RELATES_TO relationships
+            query2 = """
+            MATCH ()-[r:RELATES_TO]->()
+            WITH r, startNode(r) as start_entity, endNode(r) as end_entity
+            OPTIONAL MATCH (start_entity)<-[:MENTIONS]-(e1:Episodic)
+            OPTIONAL MATCH (end_entity)<-[:MENTIONS]-(e2:Episodic)
+            WITH r, count(e1) as start_refs, count(e2) as end_refs
+            WHERE start_refs = 0 OR end_refs = 0
+            DELETE r
+            RETURN count(r) as deleted_edges
+            """
+            
+            result2 = await driver.execute_query(
+                query2,
+                database_="neo4j"
+            )
+            
+            deleted_edges = result2.records[0]["deleted_edges"] if result2.records else 0
+            
+            # Step 3: Cleanup PendingEpisodes
+            query3 = """
+            MATCH (p:PendingEpisode {user_id: $user_id, file_name: $file_name})
+            DETACH DELETE p
+            RETURN count(p) as pending_deleted
+            """
+            await driver.execute_query(
+                query3,
+                user_id=user_id,
+                file_name=file_name,
+                database_="neo4j"
+            )
+            
+            logger.info(f"Bulk deleted for file '{file_name}': {deleted_entities} entities, {deleted_edges} orphaned edges")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error in bulk deletion for file {file_name}: {e}")
+            return False
 
     async def delete_episode(self, episode_uuid: str) -> bool:
         """

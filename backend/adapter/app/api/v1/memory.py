@@ -96,3 +96,22 @@ async def get_user_episodes(
     except Exception as e:
         logger.error(f"Error getting episodes for user {user_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/files")
+async def delete_file(
+    user_id: str,
+    file_name: str,
+    api_key: str = Depends(get_api_key)
+):
+    """
+    Delete all episodes and associated orphaned data for a specific file
+    """
+    try:
+        success = await graphiti_client.delete_file_episodes(user_id, file_name)
+        if success:
+            return {"ok": True, "message": f"Successfully deleted all data related to file '{file_name}' for user {user_id}"}
+        else:
+            raise HTTPException(status_code=500, detail=f"Failed to delete data for file '{file_name}'")
+    except Exception as e:
+        logger.error(f"Error in delete_file: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
