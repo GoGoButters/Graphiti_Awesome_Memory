@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="logo.png" alt="Graphiti Logo" width="200"/>
+  <img src="logo.png" alt="Graphiti Logo" width="400"/>
 
   # Full-stack Graphiti Memory Platform
 </div>
