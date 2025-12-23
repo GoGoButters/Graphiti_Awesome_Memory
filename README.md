@@ -107,8 +107,9 @@ curl -X POST http://<SERVER_IP>:8000/memory/append \
 }
 ```
 
-#### With File Metadata (for Document Chunking)
-If splitting a large document into chunks, pass the filename in metadata:
+#### With File Metadata (Document RAG)
+This feature is designed for **Document RAG** scenarios where you use an **external text extractor and chunking** (e.g., n8n, LangChain). By passing `file_name`, you link multiple chunks to a single source document.
+
 ```bash
 curl -X POST http://<SERVER_IP>:8000/memory/append \
   -H "Content-Type: application/json" \
