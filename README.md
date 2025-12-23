@@ -107,6 +107,23 @@ curl -X POST http://<SERVER_IP>:8000/memory/append \
 }
 ```
 
+#### With File Metadata (for Document Chunking)
+If splitting a large document into chunks, pass the filename in metadata:
+```bash
+curl -X POST http://<SERVER_IP>:8000/memory/append \
+  -H "Content-Type: application/json" \
+  -H "X-API-KEY: adapter-secret-api-key" \
+  -d '{
+    "user_id":"user123",
+    "text":"Chunk #1 content...",
+    "metadata":{
+      "source":"n8n",
+      "file_name":"report_2024.pdf"
+    }
+  }'
+```
+This allows for bulk deletion of all chunks belonging to this file later.
+
 ### Query Memory
 Search user's memories using semantic search:
 ```bash
@@ -139,6 +156,14 @@ curl -X POST http://<SERVER_IP>:8000/memory/summary \
   -H "X-API-KEY: adapter-secret-api-key" \
   -d '{"user_id":"user123"}'
 ```
+
+### Delete File (Bulk Cleanup)
+Delete all episodes and orphaned entities associated with a specific file:
+```bash
+curl -X DELETE "http://<SERVER_IP>:8000/memory/files?user_id=user123&file_name=report_2024.pdf" \
+  -H "X-API-KEY: adapter-secret-api-key"
+```
+This is useful for re-indexing documents or removing outdated knowledge.
 
 ### Get User Episodes
 Retrieve user's recent episodes with optional limit:
