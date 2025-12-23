@@ -1,4 +1,9 @@
-# Full-stack Graphiti Memory Platform
+<div align="center">
+  <img src="logo.png" alt="Graphiti Logo" width="200"/>
+
+  # Full-stack Graphiti Memory Platform
+</div>
+
 
 A production-ready dev setup for a Graphiti memory platform, featuring a FastAPI adapter, React Admin UI, and background worker.
 
