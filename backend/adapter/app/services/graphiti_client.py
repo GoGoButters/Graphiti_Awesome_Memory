@@ -1154,6 +1154,52 @@ class GraphitiWrapper:
             logger.error(f"Error deleting user {user_id}: {e}")
             return False
 
+    async def get_user_files(self, user_id: str) -> list:
+        """
+        Get list of files and chunk counts.
+        """
+        try:
+            logger.info(f"Getting files for user: {user_id}")
+            driver = self.client.driver
+            
+            query = """
+            CALL {
+                MATCH (e:Episodic)
+                WHERE e.name STARTS WITH $user_prefix AND e.file_name IS NOT NULL
+                RETURN e.file_name as file_name, count(e) as chunk_count, max(e.created_at) as last_modified
+                
+                UNION ALL
+                
+                MATCH (p:PendingEpisode)
+                WHERE p.user_id = $user_id AND p.file_name IS NOT NULL
+                RETURN p.file_name as file_name, count(p) as chunk_count, max(p.created_at) as last_modified
+            }
+            WITH file_name, sum(chunk_count) as total_chunks, max(last_modified) as last_modified
+            RETURN file_name, total_chunks, toString(last_modified) as created_at
+            ORDER BY last_modified DESC
+            """
+            
+            params = {
+                "user_prefix": f"{user_id}_",
+                "user_id": user_id,
+            }
+            
+            result = await driver.execute_query(query, **params)
+            
+            files = []
+            if result.records:
+                for record in result.records:
+                    files.append({
+                        "file_name": record["file_name"],
+                        "chunk_count": record["total_chunks"],
+                        "created_at": record["created_at"]
+                    })
+            
+            return files
+        except Exception as e:
+            logger.error(f"Error getting files for user {user_id}: {e}")
+            raise e
+
     async def get_user_episodes(self, user_id: str, limit: int = None) -> list:
         """
         Get list of episodes for a user, including pending ones.
@@ -1167,7 +1213,7 @@ class GraphitiWrapper:
             CALL {
                 // 1. Get processed episodes
                 MATCH (e:Episodic)
-                WHERE e.name STARTS WITH $user_prefix
+                WHERE e.name STARTS WITH $user_prefix AND e.file_name IS NULL
                 RETURN e.uuid as uuid, e.name as name, toString(e.created_at) as created_at, 
                        e.source_description as source, 
                        coalesce(e.content, e.episode_body, "") as content,
@@ -1177,7 +1223,7 @@ class GraphitiWrapper:
                 
                 // 2. Get pending episodes
                 MATCH (p:PendingEpisode)
-                WHERE p.user_id = $user_id
+                WHERE p.user_id = $user_id AND p.file_name IS NULL
                 RETURN p.uuid as uuid, "pending_" + p.uuid as name, toString(p.created_at) as created_at,
                        p.source as source,
                        p.content as content,

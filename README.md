@@ -9,7 +9,7 @@ A production-ready dev setup for a Graphiti memory platform, featuring a FastAPI
 
 ## Architecture
 
-- **Graphiti**: Python library for episodic/temporal knowledge graphs (integrated in Adapter and Worker).
+- **Graphiti**: Python framework for episodic/temporal knowledge graphs (integrated in Adapter and Worker).
 - **Neo4j**: Graph database backend.
 - **Adapter**: FastAPI service providing `append`, `query`, and `summary` endpoints.
 - **Worker**: Redis + RQ background worker for async tasks.
@@ -157,6 +157,8 @@ Admin endpoints require JWT token obtained by logging into the Admin UI at `http
 - `GET /admin/users/{user_id}/graph` - Get user's knowledge graph
 - `GET /admin/users/{user_id}/episodes?limit=N` - Get user episodes (admin)
 - `DELETE /admin/users/{user_id}` - Delete user and all data
+- `GET /admin/users/{user_id}/files` - List user files and chunk counts
+- `DELETE /admin/users/{user_id}/files?file_name=...` - Delete all chunks for a file
 - `DELETE /admin/episodes/{episode_uuid}` - Delete specific episode
 
 ## Performance Optimization

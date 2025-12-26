@@ -4,6 +4,7 @@ import GitHubButton from './components/GitHubButton';
 import Dashboard from './pages/Dashboard';
 import UserGraph from './pages/UserGraph';
 import UserEpisodes from './pages/UserEpisodes';
+import UserFiles from './pages/UserFiles';
 import Login from './pages/Login';
 
 const PrivateRoute = ({ children }: { children: JSX.Element }) => {
@@ -43,6 +44,11 @@ function App() {
                         <Route path="/users/:userId/episodes" element={
                             <PrivateRoute>
                                 <UserEpisodes />
+                            </PrivateRoute>
+                        } />
+                        <Route path="/users/:userId/files" element={
+                            <PrivateRoute>
+                                <UserFiles />
                             </PrivateRoute>
                         } />
                     </Routes>

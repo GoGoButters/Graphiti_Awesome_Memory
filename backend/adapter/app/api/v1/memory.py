@@ -115,3 +115,18 @@ async def delete_file(
     except Exception as e:
         logger.error(f"Error in delete_file: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/users/{user_id}/files")
+async def get_user_files(
+    user_id: str,
+    api_key: str = Depends(get_api_key)
+):
+    """
+    Get list of files and chunk counts for a user.
+    """
+    try:
+        files = await graphiti_client.get_user_files(user_id)
+        return {"files": files, "total": len(files)}
+    except Exception as e:
+        logger.error(f"Error getting files for user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

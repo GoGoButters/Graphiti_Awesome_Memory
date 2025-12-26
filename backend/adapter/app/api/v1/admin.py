@@ -111,3 +111,18 @@ async def login(credentials: Dict[str, str]):
 @router.get("/metrics")
 async def get_metrics(username: str = Depends(verify_jwt)):
     return {"status": "ok", "queue_length": 0}
+
+@router.get("/users/{user_id}/files")
+async def get_user_files(user_id: str, username: str = Depends(verify_jwt)):
+    """Get list of files for a user"""
+    files = await graphiti_client.get_user_files(user_id)
+    return {"files": files, "total": len(files)}
+
+@router.delete("/users/{user_id}/files")
+async def delete_user_file(user_id: str, file_name: str, username: str = Depends(verify_jwt)):
+    """Delete all chunks related to a file"""
+    success = await graphiti_client.delete_file_episodes(user_id, file_name)
+    if success:
+        return {"ok": True, "message": f"File {file_name} deleted successfully"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to delete file")

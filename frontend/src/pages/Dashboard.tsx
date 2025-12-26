@@ -84,6 +84,12 @@ export default function Dashboard() {
                                             Episodes
                                         </Link>
                                         <Link
+                                            to={`/users/${user.user_id}/files`}
+                                            className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300 text-sm whitespace-nowrap"
+                                        >
+                                            Files
+                                        </Link>
+                                        <Link
                                             to={`/users/${user.user_id}/graph`}
                                             className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300 text-sm whitespace-nowrap"
                                         >

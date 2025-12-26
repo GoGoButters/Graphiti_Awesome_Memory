@@ -11,6 +11,7 @@ services:
       - neo4j_data:/data
     security_opt:
       - apparmor:unconfined
+    restart: always
     healthcheck:
       test: [ "CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:7474 || exit 1" ]
       interval: 10s
@@ -20,6 +21,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: redis
+    restart: always
     ports:
       - "6379:6379"
     volumes:
@@ -31,6 +33,7 @@ services:
     build:
       context: ./backend/adapter
     container_name: adapter
+    restart: always
     ports:
       - "${ADAPTER_PORT:-8000}:8000"
     environment:
@@ -52,6 +55,7 @@ services:
       context: .
       dockerfile: worker/Dockerfile
     container_name: worker
+    restart: always
     env_file:
       - .env.worker
     security_opt:
@@ -65,6 +69,7 @@ services:
       context: .
       dockerfile: frontend/Dockerfile
     container_name: frontend
+    restart: always
     ports:
       - "${FRONTEND_PORT:-3000}:8080"
     env_file:
