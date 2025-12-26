@@ -869,23 +869,28 @@ class GraphitiWrapper:
         source_description = "User Input"
         role = "user"
         file_name = None
-        if metadata:
-            source_description = metadata.get("source", source_description)
-            role = metadata.get("role", role)
-            file_name = metadata.get("file_name")
+            if metadata:
+                source_description = metadata.get("source", source_description)
+                role = metadata.get("role", role)
+                file_name = metadata.get("file_name")
             
-        logger.info(f"Adding episode for user {user_id} (len: {len(text)}) (file: {file_name})")
+            # Append file name to source description for context
+            final_source = f"{source_description} ({role})"
+            if file_name:
+                final_source = f"{source_description} (file: {file_name})"
+
+            logger.info(f"Adding episode for user {user_id} (len: {len(text)}) (file: {file_name})")
         
-        try:
-            # 2. Add to Graphiti
-            await self.client.add_episode(
-                name=episode_name,
-                episode_body=text,
-                source=EpisodeType.text,
-                source_description=f"{source_description} ({role})",
-                reference_time=datetime.now(timezone.utc),
-                group_id=user_id  # Critical: isolate data by user
-            )
+            try:
+                # 2. Add to Graphiti
+                await self.client.add_episode(
+                    name=episode_name,
+                    episode_body=text,
+                    source=EpisodeType.text,
+                    source_description=final_source,
+                    reference_time=datetime.now(timezone.utc),
+                    group_id=user_id  # Critical: isolate data by user
+                )
             
             # 3. Tag with file_name if provided (Post-processing check)
             if file_name:
