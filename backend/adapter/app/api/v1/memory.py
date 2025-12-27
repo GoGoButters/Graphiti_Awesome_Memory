@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from app.models.schemas import (
     MemoryAppendRequest, MemoryAppendResponse,
     MemoryQueryRequest, MemoryQueryResponse,
-    MemorySummaryRequest, MemorySummaryResponse
+    MemorySummaryRequest, MemorySummaryResponse,
+    SourceGroup, GroupedMemoryQueryResponse
 )
 from app.core.auth import get_api_key
 from app.services.graphiti_client import graphiti_client
@@ -67,6 +68,52 @@ async def query_memory(
         )
     except Exception as e:
         logger.error(f"Error in query_memory: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/query/grouped", response_model=GroupedMemoryQueryResponse)
+async def query_memory_grouped(
+    request: MemoryQueryRequest,
+    api_key: str = Depends(get_api_key)
+):
+    """
+    Search memory and return results grouped by source.
+    Facts from files are grouped under their file name.
+    Facts from conversation are grouped under 'conversation'.
+    """
+    try:
+        hits = await graphiti_client.search(request.user_id, request.query, request.limit)
+        
+        # Group hits by source
+        groups_map = {}  # source_name -> list of hits
+        for hit in hits:
+            file_name = hit.metadata.get("file_name") if hit.metadata else None
+            if file_name:
+                key = f"file:{file_name}"
+                if key not in groups_map:
+                    groups_map[key] = {"type": "file", "name": file_name, "facts": []}
+                groups_map[key]["facts"].append(hit)
+            else:
+                key = "conversation"
+                if key not in groups_map:
+                    groups_map[key] = {"type": "conversation", "name": None, "facts": []}
+                groups_map[key]["facts"].append(hit)
+        
+        # Build response
+        groups = [
+            SourceGroup(
+                source_type=g["type"],
+                source_name=g["name"],
+                facts=g["facts"]
+            )
+            for g in groups_map.values()
+        ]
+        
+        return GroupedMemoryQueryResponse(
+            groups=groups,
+            total_facts=len(hits)
+        )
+    except Exception as e:
+        logger.error(f"Error in query_memory_grouped: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/summary", response_model=MemorySummaryResponse)

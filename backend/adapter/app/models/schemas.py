@@ -45,3 +45,14 @@ class UserStats(BaseModel):
 class AdminUsersResponse(BaseModel):
     users: List[UserStats]
     total: int
+
+class SourceGroup(BaseModel):
+    """Group of facts from a single source (file or conversation)"""
+    source_type: Literal["file", "conversation"] = "conversation"
+    source_name: Optional[str] = None  # file name if source_type is "file"
+    facts: List[MemoryHit]
+
+class GroupedMemoryQueryResponse(BaseModel):
+    """Search results grouped by source"""
+    groups: List[SourceGroup]
+    total_facts: int

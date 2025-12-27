@@ -955,9 +955,36 @@ class GraphitiWrapper:
                     group_ids=[user_id]
                 )
             
-            # Convert to MemoryHit format
+            # Collect episode UUIDs from results to fetch file_name metadata
+            episode_uuids = set()
+            for result in results[:limit]:
+                ep_uuid = getattr(result, 'episode_uuid', None)
+                if ep_uuid:
+                    episode_uuids.add(ep_uuid)
+            
+            # Fetch file_name for episodes in batch
+            episode_file_map = {}
+            if episode_uuids:
+                driver = self.client.driver
+                query = """
+                MATCH (e:Episodic)
+                WHERE e.uuid IN $uuids
+                RETURN e.uuid AS uuid, e.file_name AS file_name
+                """
+                result_records = await driver.execute_query(
+                    query,
+                    uuids=list(episode_uuids),
+                    database_="neo4j"
+                )
+                for record in result_records.records:
+                    episode_file_map[record["uuid"]] = record.get("file_name")
+            
+            # Convert to MemoryHit format with file_name in metadata
             hits = []
             for result in results[:limit]:
+                ep_uuid = getattr(result, 'episode_uuid', None)
+                file_name = episode_file_map.get(ep_uuid) if ep_uuid else None
+                
                 hit = MemoryHit(
                     fact=result.fact,
                     score=getattr(result, 'score', 1.0),
@@ -968,6 +995,8 @@ class GraphitiWrapper:
                         "target_node_uuid": getattr(result, 'target_node_uuid', None),
                         "valid_at": str(result.valid_at) if hasattr(result, 'valid_at') and result.valid_at else None,
                         "invalid_at": str(result.invalid_at) if hasattr(result, 'invalid_at') and result.invalid_at else None,
+                        "file_name": file_name,
+                        "episode_uuid": ep_uuid,
                     }
                 )
                 hits.append(hit)
