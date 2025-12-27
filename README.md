@@ -104,12 +104,49 @@ curl -X POST http://<SERVER_IP>:8000/memory/query \
       "fact": "Alice likes robotics",
       "score": 0.95,
       "uuid": "edge-uuid-123",
-      "created_at": "2025-12-01T12:00:00+00:00"
+      "created_at": "2025-12-01T12:00:00+00:00",
+      "metadata": {
+        "file_name": null
+      }
     }
   ],
   "total": 1
 }
 ```
+
+### Query Memory (Grouped by Source)
+Search user's memories and get results grouped by source (files vs conversation):
+```bash
+curl -X POST http://<SERVER_IP>:8000/memory/query/grouped \
+  -H "Content-Type: application/json" \
+  -H "X-API-KEY: adapter-secret-api-key" \
+  -d '{"user_id":"user123","query":"What medical tests were done?","limit":10}'
+```
+
+**Response:**
+```json
+{
+  "groups": [
+    {
+      "source_type": "file",
+      "source_name": "mri_results.pdf",
+      "facts": [
+        {"fact": "MRI shows dystrophic changes...", "score": 0.95, ...}
+      ]
+    },
+    {
+      "source_type": "conversation",
+      "source_name": null,
+      "facts": [
+        {"fact": "User mentioned headaches...", "score": 0.85, ...}
+      ]
+    }
+  ],
+  "total_facts": 5
+}
+```
+
+This endpoint is useful for AI agents that need to understand where each fact came from.
 
 ### Generate Summary
 Create a summary of user's memories:
