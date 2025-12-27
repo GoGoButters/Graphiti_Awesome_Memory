@@ -957,8 +957,21 @@ class GraphitiWrapper:
             
             # Collect episode UUIDs from results to fetch file_name metadata
             episode_uuids = set()
-            for result in results[:limit]:
+            for i, result in enumerate(results[:limit]):
+                if i == 0:
+                    logger.info(f"DEBUG: First search result type: {type(result)}")
+                    logger.info(f"DEBUG: First search result dir: {dir(result)}")
+                    logger.info(f"DEBUG: First search result content: {result}")
+                
+                # Check for episode_uuid or similar properties
                 ep_uuid = getattr(result, 'episode_uuid', None)
+                if not ep_uuid:
+                    # Try alternate names common in Graphiti
+                    ep_uuid = getattr(result, 'source_node_uuid', None)
+                    # If the edge is MENTIONS, source is episode.
+                    # But we need to be sure. 
+                    # For now just log what we have.
+                
                 if ep_uuid:
                     episode_uuids.add(ep_uuid)
             
