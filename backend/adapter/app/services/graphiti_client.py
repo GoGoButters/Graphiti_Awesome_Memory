@@ -938,7 +938,8 @@ class GraphitiWrapper:
                 search_results = await self.client.search_(
                     query=query,
                     center_node_uuid=center_node_uuid,
-                    config=search_config
+                    config=search_config,
+                    group_ids=[user_id]
                 )
                 # Extract edges from results
                 results = search_results.edges
@@ -950,7 +951,8 @@ class GraphitiWrapper:
                 results = await self.client.search(
                     query=query,
                     center_node_uuid=center_node_uuid,
-                    num_results=limit
+                    num_results=limit,
+                    group_ids=[user_id]
                 )
             
             # Convert to MemoryHit format
