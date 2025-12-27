@@ -993,10 +993,12 @@ class GraphitiWrapper:
             # Get Neo4j driver from Graphiti client
             driver = self.client.driver
             
-            # Query nodes and edges filtered by group_id
+            # Query nodes and edges by traversing from user's episodes
+            # This is more robust than relying on group_id on Entity nodes
             query = """
-            MATCH (n:Entity)
-            WHERE n.group_id = $group_id
+            MATCH (e:Episodic)
+            WHERE e.group_id = $group_id OR e.name STARTS WITH $user_prefix
+            MATCH (e)-[:MENTIONS]->(n:Entity)
             OPTIONAL MATCH (n)-[r]-(m:Entity)
             
             WITH n, r, m
@@ -1017,6 +1019,7 @@ class GraphitiWrapper:
             result = await driver.execute_query(
                 query,
                 group_id=user_id,
+                user_prefix=f"{user_id}_",
                 database_="neo4j"
             )
             
