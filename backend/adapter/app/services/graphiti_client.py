@@ -957,23 +957,12 @@ class GraphitiWrapper:
             
             # Collect episode UUIDs from results to fetch file_name metadata
             episode_uuids = set()
-            for i, result in enumerate(results[:limit]):
-                if i == 0:
-                    logger.info(f"DEBUG: First search result type: {type(result)}")
-                    logger.info(f"DEBUG: First search result dir: {dir(result)}")
-                    logger.info(f"DEBUG: First search result content: {result}")
-                
-                # Check for episode_uuid or similar properties
-                ep_uuid = getattr(result, 'episode_uuid', None)
-                if not ep_uuid:
-                    # Try alternate names common in Graphiti
-                    ep_uuid = getattr(result, 'source_node_uuid', None)
-                    # If the edge is MENTIONS, source is episode.
-                    # But we need to be sure. 
-                    # For now just log what we have.
-                
-                if ep_uuid:
-                    episode_uuids.add(ep_uuid)
+            for result in results[:limit]:
+                # Extract episode UUID from edges
+                # EntityEdge objects have an 'episodes' list attribute
+                ep_list = getattr(result, 'episodes', [])
+                if ep_list and len(ep_list) > 0:
+                    episode_uuids.add(ep_list[0])
             
             # Fetch file_name for episodes in batch
             episode_file_map = {}
@@ -995,12 +984,18 @@ class GraphitiWrapper:
             # Convert to MemoryHit format with file_name in metadata
             hits = []
             for result in results[:limit]:
-                ep_uuid = getattr(result, 'episode_uuid', None)
+                # Get episode UUID again for mapping
+                ep_list = getattr(result, 'episodes', [])
+                ep_uuid = ep_list[0] if ep_list and len(ep_list) > 0 else None
+                
                 file_name = episode_file_map.get(ep_uuid) if ep_uuid else None
+                
+                # Check for score, default to 1.0 (basic search often lacks score in Edge objects)
+                score = getattr(result, 'score', 1.0)
                 
                 hit = MemoryHit(
                     fact=result.fact,
-                    score=getattr(result, 'score', 1.0),
+                    score=score,
                     uuid=result.uuid,
                     created_at=getattr(result, 'created_at', datetime.now(timezone.utc)),
                     metadata={
