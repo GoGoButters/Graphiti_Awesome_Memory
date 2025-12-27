@@ -17,7 +17,7 @@ async def test_get_episodes_limit_param(mock_graphiti, override_dependencies):
     
     async with AsyncClient(app=app, base_url="http://test") as ac:
         response = await ac.get(
-            f"/api/v1/memory/users/{user_id}/episodes",
+            f"/memory/users/{user_id}/episodes",
             params={"limit": 5},
             headers={"X-API-Key": "test_key"}
         )

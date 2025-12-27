@@ -66,7 +66,8 @@ async def test_retry_timeout():
         # We need to mock time.time() to increment
         with patch('time.time') as mock_time:
             # Start at 0, then increment by 10s each call
-            mock_time.side_effect = [0, 10, 20, 30, 40, 50]
+            # We need enough values to prevent StopIteration during loop
+            mock_time.side_effect = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120]
             
             with patch('asyncio.sleep', new_callable=AsyncMock) as mock_sleep:
                 request = httpx.Request("POST", "http://test")

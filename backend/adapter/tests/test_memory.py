@@ -4,7 +4,7 @@ from app.main import app
 from app.core.config import settings
 
 @pytest.mark.asyncio
-async def test_append_memory():
+async def test_append_memory(mock_graphiti, override_dependencies):
     async with AsyncClient(app=app, base_url="http://test") as ac:
         response = await ac.post(
             "/memory/append",
