@@ -1407,7 +1407,7 @@ class GraphitiWrapper:
             
         except Exception as e:
             logger.error(f"Error in bulk deletion for file {file_name}: {e}")
-            return False
+            raise e
 
     async def delete_episode(self, episode_uuid: str) -> bool:
         """
