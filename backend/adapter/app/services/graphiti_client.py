@@ -1347,17 +1347,17 @@ class GraphitiWrapper:
             FOREACH (ep IN target_episodes | DETACH DELETE ep)
             
             // Check which entities became orphaned (no other episodes mention them)
-            WITH file_entities
+            WITH file_entities, size(file_entities) as total_entities
             UNWIND file_entities as entity
             OPTIONAL MATCH (entity)<-[:MENTIONS]-(other_episode:Episodic)
-            WITH entity, count(other_episode) as other_refs
+            WITH entity, total_entities, count(other_episode) as other_refs
             WHERE other_refs = 0
             
             // Delete orphaned entities
-            WITH collect(entity) as orphaned_entities
+            WITH collect(entity) as orphaned_entities, total_entities
             FOREACH (orphan IN orphaned_entities | DETACH DELETE orphan)
             
-            RETURN size(orphaned_entities) as deleted_entities, size(file_entities) as sampled_entities
+            RETURN size(orphaned_entities) as deleted_entities, total_entities as sampled_entities
             """
             
             result1 = await driver.execute_query(
