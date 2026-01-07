@@ -12,6 +12,7 @@ export default function Dashboard() {
     const [restoreFile, setRestoreFile] = useState<File | null>(null);
     const [restoreReplace, setRestoreReplace] = useState(false);
     const [restoring, setRestoring] = useState(false);
+    // @ts-ignore - used in conditional JSX blocks
     const [restoreUserId, setRestoreUserId] = useState('');
     const [restoreUserExists, setRestoreUserExists] = useState(false);
     const [restoreNewUserId, setRestoreNewUserId] = useState('');
