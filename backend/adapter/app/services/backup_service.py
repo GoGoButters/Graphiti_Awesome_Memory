@@ -169,13 +169,14 @@ class BackupService:
         logger.info(f"Created backup for user {user_id}: {len(episodes)} episodes, {len(entities)} entities, {len(edges)} edges")
         return tar_buffer.read()
     
-    async def restore_backup(self, archive_bytes: bytes, replace: bool = False) -> RestoreResponse:
+    async def restore_backup(self, archive_bytes: bytes, replace: bool = False, new_user_id: str = None) -> RestoreResponse:
         """
         Restore user data from backup archive
         
         Args:
             archive_bytes: tar.gz archive bytes
             replace: If True, delete existing user data first
+            new_user_id: Optional new user ID (for renaming during restore)
             
         Returns:
             RestoreResponse with restoration statistics
@@ -191,11 +192,14 @@ class BackupService:
                     raise ValueError("Invalid backup: missing metadata.json")
                 
                 metadata_dict = json.loads(metadata_file.read().decode('utf-8'))
-                user_id = metadata_dict['user_id']
+                original_user_id = metadata_dict['user_id']
                 
-                logger.info(f"Restoring backup for user {user_id}, replace={replace}")
+                # Use new_user_id if provided, otherwise use original
+                target_user_id = new_user_id if new_user_id else original_user_id
                 
-                # Check if user exists
+                logger.info(f"Restoring backup: original={original_user_id}, target={target_user_id}, replace={replace}")
+                
+                # Check if target user exists
                 check_query = """
                 MATCH (e:Episodic)
                 WHERE e.name STARTS WITH $user_prefix
@@ -203,14 +207,14 @@ class BackupService:
                 """
                 
                 async with self.driver.session() as session:
-                    result = await session.run(check_query, user_prefix=f"{user_id}_")
+                    result = await session.run(check_query, user_prefix=f"{target_user_id}_")
                     record = await result.single()
                     existing_count = record["count"] if record else 0
                 
                 # Delete existing data if replace=True
                 if replace and existing_count > 0:
-                    logger.info(f"Deleting existing data for user {user_id}")
-                    await self._delete_user_data(user_id)
+                    logger.info(f"Deleting existing data for user {target_user_id}")
+                    await self._delete_user_data(target_user_id)
                 
                 # Extract data files
                 episodes_file = tar.extractfile('episodes.json')
@@ -224,17 +228,24 @@ class BackupService:
                 entities = json.loads(entities_file.read().decode('utf-8'))
                 edges = json.loads(edges_file.read().decode('utf-8'))
             
+            # Update episode names if renaming user
+            if new_user_id and new_user_id != original_user_id:
+                for episode in episodes:
+                    # Replace user_id in episode name (format: {user_id}_{timestamp})
+                    if episode.get('name', '').startswith(f"{original_user_id}_"):
+                        episode['name'] = episode['name'].replace(f"{original_user_id}_", f"{new_user_id}_", 1)
+            
             # Import data
-            stats = await self._import_data(user_id, episodes, entities, edges, merge=not replace)
+            stats = await self._import_data(target_user_id, episodes, entities, edges, merge=not replace)
             
             return RestoreResponse(
                 status="success",
-                user_id=user_id,
+                user_id=target_user_id,
                 episodes_created=stats['episodes_created'],
                 entities_created=stats['entities_created'],
                 edges_created=stats['edges_created'],
                 conflicts_skipped=stats['conflicts_skipped'],
-                message=f"Successfully restored backup for user {user_id}"
+                message=f"Successfully restored backup for user {target_user_id}"
             )
             
         except Exception as e:

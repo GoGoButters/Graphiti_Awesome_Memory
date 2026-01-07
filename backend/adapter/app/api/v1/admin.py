@@ -160,8 +160,9 @@ async def download_user_backup(user_id: str, username: str = Depends(verify_jwt)
 
 @router.post("/users/restore")
 async def restore_user_backup(
-    file: Any,  # UploadFile from fastapi
+    file: UploadFile = File(...),
     replace: bool = False,
+    new_user_id: str = None,
     username: str = Depends(verify_jwt)
 ):
     """
@@ -170,30 +171,32 @@ async def restore_user_backup(
     Args:
         file: tar.gz backup file
         replace: If true, delete existing user data before restore
+        new_user_id: Optional new user ID (for renaming during restore)
         
     Returns:
         RestoreResponse with restoration statistics
     """
-    from fastapi import File, UploadFile
+    from fastapi import UploadFile, File
     from app.services.backup_service import BackupService
     from app.models.schemas import RestoreResponse
     
-    # Re-declare with proper type for FastAPI
-    async def _restore(file: UploadFile = File(...)):
-        backup_service = BackupService(graphiti_client.client.driver)
-        
-        try:
-            # Read uploaded file
-            archive_bytes = await file.read()
-            
-            # Restore backup
-            response = await backup_service.restore_backup(archive_bytes, replace=replace)
-            
-            return response
-        except Exception as e:
-            import logging
-            logging.getLogger("app.api.v1.admin").error(f"Error restoring backup: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Failed to restore backup: {str(e)}")
+    backup_service = BackupService(graphiti_client.client.driver)
     
-    return await _restore(file)
+    try:
+        # Read uploaded file
+        archive_bytes = await file.read()
+        
+        # Restore backup with optional new user ID
+        response = await backup_service.restore_backup(
+            archive_bytes, 
+            replace=replace,
+            new_user_id=new_user_id
+        )
+        
+        return response
+    except Exception as e:
+        import logging
+        logging.getLogger("app.api.v1.admin").error(f"Error restoring backup: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to restore backup: {str(e)}")
+
 

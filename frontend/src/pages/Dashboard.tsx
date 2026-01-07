@@ -12,6 +12,9 @@ export default function Dashboard() {
     const [restoreFile, setRestoreFile] = useState<File | null>(null);
     const [restoreReplace, setRestoreReplace] = useState(false);
     const [restoring, setRestoring] = useState(false);
+    const [restoreUserId, setRestoreUserId] = useState('');
+    const [restoreUserExists, setRestoreUserExists] = useState(false);
+    const [restoreNewUserId, setRestoreNewUserId] = useState('');
 
     const fetchUsers = () => {
         apiClient.get('/admin/users').then(res => setStats(res.data));
@@ -25,10 +28,8 @@ export default function Dashboard() {
         const confirmed = window.confirm(
             `Are you sure you want to delete user "${userId}"?\n\n` +
             `This will permanently remove:\n` +
-            `• All episodes (memories)\n` +
-            `• All entities (nodes)\n` +
-            `• All relationships (edges)\n\n` +
-            `This action cannot be undone!`
+            `• All episodes (memories)\n• All entities (nodes)\n` +
+            `• All relationships (edges)\n\nThis action cannot be undone!`
         );
 
         if (!confirmed) return;
@@ -60,7 +61,6 @@ export default function Dashboard() {
                 responseType: 'blob'
             });
 
-            // Create download link
             const url = window.URL.createObjectURL(new Blob([response.data]));
             const link = document.createElement('a');
             link.href = url;
@@ -83,14 +83,25 @@ export default function Dashboard() {
             return;
         }
 
+        if (restoreUserExists && !restoreReplace && !restoreNewUserId.trim()) {
+            alert('Please enter a new user ID or choose to replace existing data');
+            return;
+        }
+
         setRestoring(true);
 
         try {
             const formData = new FormData();
             formData.append('file', restoreFile);
 
+            const params = new URLSearchParams();
+            params.append('replace', restoreReplace.toString());
+            if (restoreUserExists && !restoreReplace && restoreNewUserId.trim()) {
+                params.append('new_user_id', restoreNewUserId.trim());
+            }
+
             const response = await apiClient.post(
-                `/admin/users/restore?replace=${restoreReplace}`,
+                `/admin/users/restore?${params.toString()}`,
                 formData,
                 {
                     headers: {
@@ -112,6 +123,9 @@ export default function Dashboard() {
             setShowRestoreDialog(false);
             setRestoreFile(null);
             setRestoreReplace(false);
+            setRestoreUserId('');
+            setRestoreUserExists(false);
+            setRestoreNewUserId('');
             fetchUsers();
         } catch (error: any) {
             console.error('Error restoring backup:', error);
@@ -218,27 +232,78 @@ export default function Dashboard() {
                             <input
                                 type="file"
                                 accept=".tar.gz,.tgz"
-                                onChange={(e) => setRestoreFile(e.target.files?.[0] || null)}
+                                onChange={(e) => {
+                                    const file = e.target.files?.[0] || null;
+                                    setRestoreFile(file);
+                                    if (file) {
+                                        const userId = file.name.replace(/\.tar\.gz$/, '').replace(/\.tgz$/, '');
+                                        setRestoreUserId(userId);
+                                        const userExists = stats?.users?.some((u: any) => u.user_id === userId);
+                                        setRestoreUserExists(userExists);
+                                    }
+                                }}
                                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded dark:bg-gray-700 dark:text-white"
                             />
                         </div>
 
-                        <div className="mb-4">
-                            <label className="flex items-center gap-2 cursor-pointer">
-                                <input
-                                    type="checkbox"
-                                    checked={restoreReplace}
-                                    onChange={(e) => setRestoreReplace(e.target.checked)}
-                                    className="w-4 h-4"
-                                />
-                                <span className="text-sm dark:text-gray-300">
-                                    Replace existing user data (if user exists)
-                                </span>
-                            </label>
-                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 ml-6">
-                                If unchecked, will skip existing data
-                            </p>
-                        </div>
+                        {restoreFile && restoreUserId && (
+                            <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded">
+                                <p className="text-sm dark:text-gray-300">
+                                    <strong>User ID from backup:</strong> {restoreUserId}
+                                </p>
+                            </div>
+                        )}
+
+                        {restoreUserExists && restoreFile && (
+                            <div className="mb-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded border border-yellow-300 dark:border-yellow-700">
+                                <p className="text-sm text-yellow-800 dark:text-yellow-300 mb-3">
+                                    ⚠️ User "{restoreUserId}" already exists. Choose action:
+                                </p>
+
+                                <div className="space-y-2">
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                        <input
+                                            type="radio"
+                                            name="restoreAction"
+                                            checked={restoreReplace}
+                                            onChange={() => setRestoreReplace(true)}
+                                            className="w-4 h-4"
+                                        />
+                                        <span className="text-sm dark:text-gray-300">
+                                            Replace existing data
+                                        </span>
+                                    </label>
+
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                        <input
+                                            type="radio"
+                                            name="restoreAction"
+                                            checked={!restoreReplace}
+                                            onChange={() => setRestoreReplace(false)}
+                                            className="w-4 h-4"
+                                        />
+                                        <span className="text-sm dark:text-gray-300">
+                                            Restore with new name
+                                        </span>
+                                    </label>
+                                </div>
+
+                                {!restoreReplace && (
+                                    <div className="mt-3">
+                                        <label className="block text-sm font-medium mb-1 dark:text-gray-300">
+                                            New User ID:
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={restoreNewUserId}
+                                            onChange={(e) => setRestoreNewUserId(e.target.value)}
+                                            placeholder={`${restoreUserId}_v2`}
+                                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded dark:bg-gray-700 dark:text-white text-sm"
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
                         <div className="flex gap-3 justify-end">
                             <button
@@ -246,6 +311,9 @@ export default function Dashboard() {
                                     setShowRestoreDialog(false);
                                     setRestoreFile(null);
                                     setRestoreReplace(false);
+                                    setRestoreUserId('');
+                                    setRestoreUserExists(false);
+                                    setRestoreNewUserId('');
                                 }}
                                 disabled={restoring}
                                 className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-50"
@@ -254,7 +322,7 @@ export default function Dashboard() {
                             </button>
                             <button
                                 onClick={handleRestore}
-                                disabled={!restoreFile || restoring}
+                                disabled={!restoreFile || restoring || (restoreUserExists && !restoreReplace && !restoreNewUserId)}
                                 className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 {restoring ? 'Restoring...' : 'Restore'}
