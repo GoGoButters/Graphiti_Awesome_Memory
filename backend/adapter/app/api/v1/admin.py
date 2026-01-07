@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
 from app.models.schemas import AdminUsersResponse, UserStats
 from app.core.auth import verify_jwt
 from app.services.graphiti_client import graphiti_client
