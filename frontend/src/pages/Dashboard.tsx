@@ -1,12 +1,17 @@
 import { useEffect, useState } from 'react';
 import apiClient from '../api/apiClient';
 import { Link } from 'react-router-dom';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Download, Upload } from 'lucide-react';
 import ThemeToggle from '../components/ThemeToggle';
 
 export default function Dashboard() {
     const [stats, setStats] = useState<any>(null);
     const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
+    const [backupUserId, setBackupUserId] = useState<string | null>(null);
+    const [showRestoreDialog, setShowRestoreDialog] = useState(false);
+    const [restoreFile, setRestoreFile] = useState<File | null>(null);
+    const [restoreReplace, setRestoreReplace] = useState(false);
+    const [restoring, setRestoring] = useState(false);
 
     const fetchUsers = () => {
         apiClient.get('/admin/users').then(res => setStats(res.data));
@@ -47,11 +52,90 @@ export default function Dashboard() {
         }
     };
 
+    const handleBackup = async (userId: string) => {
+        setBackupUserId(userId);
+
+        try {
+            const response = await apiClient.get(`/admin/users/${userId}/backup`, {
+                responseType: 'blob'
+            });
+
+            // Create download link
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `${userId}.tar.gz`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (error: any) {
+            console.error('Error creating backup:', error);
+            alert(`Failed to create backup for "${userId}": ${error.response?.data?.detail || error.message}`);
+        } finally {
+            setBackupUserId(null);
+        }
+    };
+
+    const handleRestore = async () => {
+        if (!restoreFile) {
+            alert('Please select a backup file');
+            return;
+        }
+
+        setRestoring(true);
+
+        try {
+            const formData = new FormData();
+            formData.append('file', restoreFile);
+
+            const response = await apiClient.post(
+                `/admin/users/restore?replace=${restoreReplace}`,
+                formData,
+                {
+                    headers: {
+                        'Content-Type': 'multipart/form-data'
+                    }
+                }
+            );
+
+            const result = response.data;
+            alert(
+                `Restore successful!\n\n` +
+                `User: ${result.user_id}\n` +
+                `Episodes: ${result.episodes_created}\n` +
+                `Entities: ${result.entities_created}\n` +
+                `Edges: ${result.edges_created}\n` +
+                `Conflicts skipped: ${result.conflicts_skipped}`
+            );
+
+            setShowRestoreDialog(false);
+            setRestoreFile(null);
+            setRestoreReplace(false);
+            fetchUsers();
+        } catch (error: any) {
+            console.error('Error restoring backup:', error);
+            alert(`Failed to restore backup: ${error.response?.data?.detail || error.message}`);
+        } finally {
+            setRestoring(false);
+        }
+    };
+
     return (
         <div className="p-4 sm:p-6 lg:p-8 pb-20">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                 <h1 className="text-xl sm:text-2xl font-bold dark:text-white">Dashboard</h1>
-                <ThemeToggle />
+                <div className="flex gap-3 items-center">
+                    <button
+                        onClick={() => setShowRestoreDialog(true)}
+                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded inline-flex items-center gap-2 text-sm"
+                        title="Restore user from backup"
+                    >
+                        <Upload size={16} />
+                        Restore Backup
+                    </button>
+                    <ThemeToggle />
+                </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6 mb-6 sm:mb-8">
@@ -77,6 +161,15 @@ export default function Dashboard() {
                                 <td className="px-3 sm:px-6 py-4 whitespace-nowrap dark:text-gray-200">{user.episodes_count}</td>
                                 <td className="px-3 sm:px-6 py-4">
                                     <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+                                        <button
+                                            onClick={() => handleBackup(user.user_id)}
+                                            disabled={backupUserId === user.user_id}
+                                            className="text-green-600 hover:text-green-900 dark:text-green-400 dark:hover:text-green-300 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1 text-sm"
+                                            title="Download backup"
+                                        >
+                                            <Download size={14} />
+                                            {backupUserId === user.user_id ? 'Creating...' : 'Backup'}
+                                        </button>
                                         <Link
                                             to={`/users/${user.user_id}/episodes`}
                                             className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300 text-sm whitespace-nowrap"
@@ -102,7 +195,7 @@ export default function Dashboard() {
                                             title="Delete user"
                                         >
                                             <Trash2 size={14} />
-                                            {deletingUserId === user.user_id ? 'Deleting...' : 'Delete'}
+                                            {deletingUserId === user.user_id ? 'Del...' : 'Delete'}
                                         </button>
                                     </div>
                                 </td>
@@ -111,6 +204,65 @@ export default function Dashboard() {
                     </tbody>
                 </table>
             </div>
+
+            {/* Restore Dialog */}
+            {showRestoreDialog && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6">
+                        <h2 className="text-xl font-bold mb-4 dark:text-white">Restore User Backup</h2>
+
+                        <div className="mb-4">
+                            <label className="block text-sm font-medium mb-2 dark:text-gray-300">
+                                Select Backup File (.tar.gz)
+                            </label>
+                            <input
+                                type="file"
+                                accept=".tar.gz,.tgz"
+                                onChange={(e) => setRestoreFile(e.target.files?.[0] || null)}
+                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded dark:bg-gray-700 dark:text-white"
+                            />
+                        </div>
+
+                        <div className="mb-4">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={restoreReplace}
+                                    onChange={(e) => setRestoreReplace(e.target.checked)}
+                                    className="w-4 h-4"
+                                />
+                                <span className="text-sm dark:text-gray-300">
+                                    Replace existing user data (if user exists)
+                                </span>
+                            </label>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 ml-6">
+                                If unchecked, will skip existing data
+                            </p>
+                        </div>
+
+                        <div className="flex gap-3 justify-end">
+                            <button
+                                onClick={() => {
+                                    setShowRestoreDialog(false);
+                                    setRestoreFile(null);
+                                    setRestoreReplace(false);
+                                }}
+                                disabled={restoring}
+                                className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-50"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleRestore}
+                                disabled={!restoreFile || restoring}
+                                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {restoring ? 'Restoring...' : 'Restore'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

@@ -56,3 +56,24 @@ class GroupedMemoryQueryResponse(BaseModel):
     """Search results grouped by source"""
     groups: List[SourceGroup]
     total_facts: int
+
+# Backup/Restore Schemas
+class BackupMetadata(BaseModel):
+    """Metadata for user data backup"""
+    version: str = "1.0"
+    export_timestamp: datetime
+    user_id: str
+    total_episodes: int
+    total_entities: int
+    total_edges: int
+
+class RestoreResponse(BaseModel):
+    """Response from restore operation"""
+    status: str
+    user_id: str
+    episodes_created: int = 0
+    entities_created: int = 0
+    edges_created: int = 0
+    conflicts_skipped: int = 0
+    message: str
+

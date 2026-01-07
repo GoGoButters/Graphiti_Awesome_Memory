@@ -126,3 +126,74 @@ async def delete_user_file(user_id: str, file_name: str, username: str = Depends
         return {"ok": True, "message": f"File {file_name} deleted successfully"}
     else:
         raise HTTPException(status_code=500, detail="Failed to delete file")
+
+@router.get("/users/{user_id}/backup")
+async def download_user_backup(user_id: str, username: str = Depends(verify_jwt)):
+    """
+    Download complete user data backup as tar.gz archive
+    
+    Returns a tar.gz file containing:
+    - metadata.json: Export version, timestamp, counts
+    - episodes.json: All user episodes
+    - entities.json: All entities
+    - edges.json: All relationships
+    """
+    from fastapi.responses import Response
+    from app.services.backup_service import BackupService
+    
+    backup_service = BackupService(graphiti_client.client.driver)
+    
+    try:
+        archive_bytes = await backup_service.create_backup(user_id)
+        
+        return Response(
+            content=archive_bytes,
+            media_type="application/gzip",
+            headers={
+                "Content-Disposition": f'attachment; filename="{user_id}.tar.gz"'
+            }
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger("app.api.v1.admin").error(f"Error creating backup for {user_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create backup: {str(e)}")
+
+@router.post("/users/restore")
+async def restore_user_backup(
+    file: Any,  # UploadFile from fastapi
+    replace: bool = False,
+    username: str = Depends(verify_jwt)
+):
+    """
+    Restore user data from backup archive
+    
+    Args:
+        file: tar.gz backup file
+        replace: If true, delete existing user data before restore
+        
+    Returns:
+        RestoreResponse with restoration statistics
+    """
+    from fastapi import File, UploadFile
+    from app.services.backup_service import BackupService
+    from app.models.schemas import RestoreResponse
+    
+    # Re-declare with proper type for FastAPI
+    async def _restore(file: UploadFile = File(...)):
+        backup_service = BackupService(graphiti_client.client.driver)
+        
+        try:
+            # Read uploaded file
+            archive_bytes = await file.read()
+            
+            # Restore backup
+            response = await backup_service.restore_backup(archive_bytes, replace=replace)
+            
+            return response
+        except Exception as e:
+            import logging
+            logging.getLogger("app.api.v1.admin").error(f"Error restoring backup: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Failed to restore backup: {str(e)}")
+    
+    return await _restore(file)
+
