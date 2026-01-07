@@ -41,6 +41,24 @@ export default function UserGraph() {
 
     if (loading) return <div className="p-8 text-white bg-gray-900 h-screen flex items-center justify-center">Loading graph...</div>;
 
+    // Check if graph is empty
+    if (elements.length === 0) {
+        return (
+            <div className="w-screen h-screen bg-gray-900 flex items-center justify-center">
+                <div className="text-center">
+                    <h2 className="text-2xl font-bold text-white mb-4">No Graph Data</h2>
+                    <p className="text-gray-400 mb-6">This user has no entities or relationships yet.</p>
+                    <button
+                        onClick={() => window.history.back()}
+                        className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded"
+                    >
+                        ← Back to Dashboard
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="relative w-screen h-screen overflow-hidden bg-gray-900">
             <div className="absolute top-4 left-4 z-10 flex flex-col sm:flex-row gap-2">
