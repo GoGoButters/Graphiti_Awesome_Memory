@@ -1032,32 +1032,49 @@ class GraphitiWrapper:
             # Get Neo4j driver from Graphiti client
             driver = self.client.driver
             
-            # Query nodes and edges by traversing from user's episodes
-            # This is more robust than relying on group_id on Entity nodes
-            query = """
+            # Debug: Check what episodes exist for this user
+            debug_query = """
             MATCH (e:Episodic)
             WHERE e.name STARTS WITH $user_prefix
-            MATCH (e)-[:MENTIONS]->(n:Entity)
-            OPTIONAL MATCH (n)-[r]-(m:Entity)
+            RETURN COUNT(e) as episode_count, COLLECT(e.name)[0..5] as sample_names
+            """
+            debug_result = await driver.execute_query(
+                debug_query,
+                user_prefix=f"{user_id}_",
+                database_="neo4j"
+            )
+            if debug_result.records:
+                logger.info(f"DEBUG: Found {debug_result.records[0]['episode_count']} episodes, samples: {debug_result.records[0]['sample_names']}")
             
-            WITH n, r, m
-            UNWIND [n, m] as node
-            WITH node, r
-            WHERE node IS NOT NULL
+            # Debug: Check what entities exist
+            debug_entities = """
+            MATCH (n:Entity)
+            WHERE n.group_id = $user_id
+            RETURN COUNT(n) as entity_count
+            """
+            entity_result = await driver.execute_query(
+                debug_entities,
+                user_id=user_id,
+                database_="neo4j"
+            )
+            if entity_result.records:
+                logger.info(f"DEBUG: Found {entity_result.records[0]['entity_count']} entities with group_id={user_id}")
+            
+            # Try simplified query - just get entities by group_id
+            query = """
+            MATCH (n:Entity)
+            WHERE n.group_id = $user_id
+            OPTIONAL MATCH (n)-[r:RELATES_TO]-(m:Entity)
+            WHERE m.group_id = $user_id
             
             RETURN 
-                collect(DISTINCT node) as nodes,
-                collect(DISTINCT {
-                    uuid: r.uuid,
-                    source: startNode(r).uuid,
-                    target: endNode(r).uuid,
-                    fact: r.fact
-                }) as edges
+                collect(DISTINCT n) as entities,
+                collect(DISTINCT r) as relationships
             """
             
             result = await driver.execute_query(
                 query,
-                user_prefix=f"{user_id}_",
+                user_id=user_id,
                 database_="neo4j"
             )
             
@@ -1068,26 +1085,26 @@ class GraphitiWrapper:
             if result.records:
                 record = result.records[0]
                 
-                # Process nodes
-                for node in record["nodes"]:
+                # Process entity nodes
+                for entity in record["entities"]:
                     nodes.append({
                         "data": {
-                            "id": node["uuid"] if "uuid" in node else str(node.id),
-                            "label": node["name"] if "name" in node else "Unknown",
-                            "summary": (node["summary"][:200] if "summary" in node and node["summary"] else ""),
-                            "created_at": str(node["created_at"]) if "created_at" in node and node["created_at"] else None,
+                            "id": entity["uuid"],
+                            "label": entity.get("name", "Unknown"),
+                            "summary": (entity.get("summary", "")[:200] if entity.get("summary") else ""),
+                            "created_at": str(entity["created_at"]) if "created_at" in entity else None,
                         }
                     })
                 
-                # Process edges
-                for edge in record["edges"]:
-                    if edge and edge.get("source") and edge.get("target"):  # Ensure source/target exist
+                # Process relationships
+                for rel in record["relationships"]:
+                    if rel:  # Skip None relationships
                         edges.append({
                             "data": {
-                                "id": edge["uuid"] if edge.get("uuid") else f"{edge['source']}_{edge['target']}",
-                                "source": edge["source"],
-                                "target": edge["target"],
-                                "label": (edge["fact"][:100] if edge.get("fact") else ""),
+                                "id": rel["uuid"],
+                                "source": rel["source_node_uuid"],
+                                "target": rel["target_node_uuid"],
+                                "label": (rel.get("fact", "")[:100] if rel.get("fact") else ""),
                             }
                         })
             
@@ -1099,8 +1116,9 @@ class GraphitiWrapper:
             }
             
         except Exception as e:
-            logger.error(f"Error getting user graph: {e}")
+            logger.error(f"Error getting user graph: {e}", exc_info=True)
             return {"nodes": [], "edges": []}
+
 
     async def get_summary(self, user_id: str) -> str:
         """
