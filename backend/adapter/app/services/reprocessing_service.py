@@ -50,7 +50,7 @@ class ReprocessingService:
             delete_query = """
             MATCH (e:Episodic)
             WHERE e.name STARTS WITH $user_prefix
-            DELETE e
+            DETACH DELETE e
             """
             await driver.execute_query(
                 delete_query,
