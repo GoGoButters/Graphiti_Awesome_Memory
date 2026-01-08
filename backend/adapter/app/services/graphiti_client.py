@@ -1036,7 +1036,7 @@ class GraphitiWrapper:
             # This is more robust than relying on group_id on Entity nodes
             query = """
             MATCH (e:Episodic)
-            WHERE e.group_id = $group_id OR e.name STARTS WITH $user_prefix
+            WHERE e.name STARTS WITH $user_prefix
             MATCH (e)-[:MENTIONS]->(n:Entity)
             OPTIONAL MATCH (n)-[r]-(m:Entity)
             
@@ -1057,7 +1057,6 @@ class GraphitiWrapper:
             
             result = await driver.execute_query(
                 query,
-                group_id=user_id,
                 user_prefix=f"{user_id}_",
                 database_="neo4j"
             )
