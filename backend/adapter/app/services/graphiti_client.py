@@ -1060,6 +1060,34 @@ class GraphitiWrapper:
             if entity_result.records:
                 logger.info(f"DEBUG: Found {entity_result.records[0]['entity_count']} entities with group_id={user_id}")
             
+            # Debug: Check total entities in DB
+            debug_total_entities = """
+            MATCH (n:Entity)
+            RETURN COUNT(n) as total_entities
+            """
+            total_result = await driver.execute_query(
+                debug_total_entities,
+                database_="neo4j"
+            )
+            if total_result.records:
+                logger.info(f"DEBUG: Total Entity nodes in DB: {total_result.records[0]['total_entities']}")
+            
+            # Debug: Check if user episodes have MENTIONS relationships
+            debug_mentions = """
+            MATCH (e:Episodic)
+            WHERE e.name STARTS WITH $user_prefix
+            OPTIONAL MATCH (e)-[:MENTIONS]->(n:Entity)
+            RETURN COUNT(DISTINCT e) as episodes_with_mentions, COUNT(DISTINCT n) as mentioned_entities
+            """
+            mentions_result = await driver.execute_query(
+                debug_mentions,
+                user_prefix=f"{user_id}_",
+                database_="neo4j"
+            )
+            if mentions_result.records:
+                logger.info(f"DEBUG: Episodes with MENTIONS: {mentions_result.records[0]['episodes_with_mentions']}, "
+                           f"Entities mentioned: {mentions_result.records[0]['mentioned_entities']}")
+            
             # Debug: Check what group_ids actually exist for entities
             debug_group_ids = """
             MATCH (n:Entity)
@@ -1074,6 +1102,8 @@ class GraphitiWrapper:
             if group_id_result.records:
                 sample_group_ids = [r['group_id'] for r in group_id_result.records]
                 logger.info(f"DEBUG: Sample entity group_ids in DB: {sample_group_ids}")
+            else:
+                logger.info(f"DEBUG: NO entities have group_id set!")
             
             # Try simplified query - just get entities by group_id
             query = """
