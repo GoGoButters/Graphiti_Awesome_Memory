@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
 from app.models.schemas import AdminUsersResponse, UserStats
 from app.core.auth import verify_jwt
 from app.services.graphiti_client import graphiti_client
+from app.services.reprocessing_service import reprocessing_service
 from typing import Dict, Any
 
 router = APIRouter()
@@ -199,4 +200,52 @@ async def restore_user_backup(
         logging.getLogger("app.api.v1.admin").error(f"Error restoring backup: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to restore backup: {str(e)}")
 
+
+@router.post("/reprocess/{user_id}")
+async def reprocess_user_episodes(
+    user_id: str,
+    username: str = Depends(verify_jwt)
+):
+    """
+    Reprocess all episodes for a specific user to rebuild knowledge graph
+    
+    WARNING: This is an expensive operation that will make LLM calls for each episode
+    
+    Args:
+        user_id: User ID to reprocess
+        
+    Returns:
+        Statistics about reprocessing
+    """
+    try:
+        result = await reprocessing_service.reprocess_user(user_id)
+        return result
+    except Exception as e:
+        import logging
+        logging.getLogger("app.api.v1.admin").error(f"Error reprocessing user {user_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to reprocess user: {str(e)}")
+
+
+@router.post("/reprocess-all")
+async def reprocess_all_users(
+    username: str = Depends(verify_jwt)
+):
+    """
+    Reprocess all episodes for ALL users to rebuild knowledge graph
+    
+    WARNING: This is a VERY expensive operation that will:
+    - Make LLM calls for every episode in the database
+    - Take a long time to complete
+    - Cost significant API credits
+    
+    Returns:
+        Overall statistics about reprocessing
+    """
+    try:
+        result = await reprocessing_service.reprocess_all_users()
+        return result
+    except Exception as e:
+        import logging
+        logging.getLogger("app.api.v1.admin").error(f"Error reprocessing all users: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to reprocess all users: {str(e)}")
 
