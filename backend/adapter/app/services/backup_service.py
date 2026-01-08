@@ -215,9 +215,24 @@ class BackupService:
                 entities_content = entities_file.read().decode('utf-8').strip()
                 edges_content = edges_file.read().decode('utf-8').strip()
                 
-                episodes = json.loads(episodes_content) if episodes_content else []
-                entities = json.loads(entities_content) if entities_content else []
-                edges = json.loads(edges_content) if edges_content else []
+                # Parse with fallback to empty list for any JSON errors
+                try:
+                    episodes = json.loads(episodes_content) if episodes_content else []
+                except (json.JSONDecodeError, ValueError):
+                    logger.warning(f"Failed to parse episodes.json, using empty list")
+                    episodes = []
+                
+                try:
+                    entities = json.loads(entities_content) if entities_content else []
+                except (json.JSONDecodeError, ValueError):
+                    logger.warning(f"Failed to parse entities.json, using empty list")
+                    entities = []
+                
+                try:
+                    edges = json.loads(edges_content) if edges_content else []
+                except (json.JSONDecodeError, ValueError):
+                    logger.warning(f"Failed to parse edges.json, using empty list")
+                    edges = []
                 
                 logger.info(f"Loaded from backup: {len(episodes)} episodes, {len(entities)} entities, {len(edges)} edges")
             
