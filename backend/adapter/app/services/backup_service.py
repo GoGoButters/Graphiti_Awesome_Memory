@@ -201,7 +201,7 @@ class BackupService:
                 
                 logger.info(f"Restoring backup (SAFE MERGE mode): original={original_user_id}, target={target_user_id}")
                 
-                # Extract data files
+                # Extract and parse data files INSIDE with block (before tar closes)
                 episodes_file = tar.extractfile('episodes.json')
                 entities_file = tar.extractfile('entities.json')
                 edges_file = tar.extractfile('edges.json')
@@ -209,9 +209,17 @@ class BackupService:
                 if not all([episodes_file, entities_file, edges_file]):
                     raise ValueError("Invalid backup: missing data files")
                 
-                episodes = json.loads(episodes_file.read().decode('utf-8'))
-                entities = json.loads(entities_file.read().decode('utf-8'))
-                edges = json.loads(edges_file.read().decode('utf-8'))
+                # Read and parse JSON NOW, before exiting with block
+                # Handle empty files gracefully (backup may have been made when entities were deleted)
+                episodes_content = episodes_file.read().decode('utf-8').strip()
+                entities_content = entities_file.read().decode('utf-8').strip()
+                edges_content = edges_file.read().decode('utf-8').strip()
+                
+                episodes = json.loads(episodes_content) if episodes_content else []
+                entities = json.loads(entities_content) if entities_content else []
+                edges = json.loads(edges_content) if edges_content else []
+                
+                logger.info(f"Loaded from backup: {len(episodes)} episodes, {len(entities)} entities, {len(edges)} edges")
             
             # Update episode names if renaming user
             if new_user_id and new_user_id != original_user_id:
