@@ -28,7 +28,8 @@ class ReprocessingService:
             query = """
             MATCH (e:Episodic)
             WHERE e.name STARTS WITH $user_prefix
-            RETURN e.uuid as uuid, e.content as content, e.created_at as created_at, e.source as source
+            RETURN e.uuid as uuid, e.content as content, e.created_at as created_at, 
+                   e.source as source, e.file_name as file_name
             ORDER BY e.created_at ASC
             """
             
@@ -45,16 +46,38 @@ class ReprocessingService:
             
             logger.info(f"Starting reprocessing {total} episodes for user {user_id}")
             
+            # Delete all old episodes first (they will be recreated by add_episode)
+            delete_query = """
+            MATCH (e:Episodic)
+            WHERE e.name STARTS WITH $user_prefix
+            DELETE e
+            """
+            await driver.execute_query(
+                delete_query,
+                user_prefix=f"{user_id}_",
+                database_="neo4j"
+            )
+            logger.info(f"Deleted {total} old episodes for user {user_id}")
+            
             # Process each episode
             for i, episode in enumerate(episodes):
                 try:
                     logger.info(f"Reprocessing episode {i+1}/{total} for user {user_id}")
                     
-                    # Call graphiti to build the graph from this episode
-                    # This will create Entity nodes and relationships
-                    await graphiti_client.client.build_indices_for_episode(
-                        episode_uuid=episode['uuid'],
-                        group_id=user_id
+                    # Use the existing add_episode method which will:
+                    # 1. Create new Episodic node
+                    # 2. Extract entities with LLM
+                    # 3. Create Entity nodes and relationships
+                    metadata = {}
+                    if episode.get('file_name'):
+                        metadata['file_name'] = episode['file_name']
+                    if episode.get('source'):
+                        metadata['source'] = episode['source']
+                    
+                    await graphiti_client.add_episode(
+                        user_id=user_id,
+                        text=episode['content'],
+                        metadata=metadata
                     )
                     
                     processed += 1
