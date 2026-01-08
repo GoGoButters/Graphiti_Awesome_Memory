@@ -1061,6 +1061,33 @@ class GraphitiWrapper:
             if pending_result.records:
                 logger.info(f"DEBUG: Found {pending_result.records[0]['pending_count']} PendingEpisode nodes (unprocessed)")
             
+            # Debug: Check what node labels exist in the database
+            debug_labels = """
+            CALL db.labels() YIELD label
+            RETURN collect(label) as all_labels
+            """
+            labels_result = await driver.execute_query(
+                debug_labels,
+                database_="neo4j"
+            )
+            if labels_result.records:
+                logger.info(f"DEBUG: Node labels in DB: {labels_result.records[0]['all_labels']}")
+            
+            # Debug: Count nodes by label
+            debug_counts = """
+            MATCH (n)
+            RETURN labels(n) as label, COUNT(*) as count
+            ORDER BY count DESC
+            LIMIT 10
+            """
+            counts_result = await driver.execute_query(
+                debug_counts,
+                database_="neo4j"
+            )
+            if counts_result.records:
+                label_counts = [(r['label'], r['count']) for r in counts_result.records]
+                logger.info(f"DEBUG: Node counts by label: {label_counts}")
+            
             # Debug: Check what entities exist
             debug_entities = """
             MATCH (n:Entity)
