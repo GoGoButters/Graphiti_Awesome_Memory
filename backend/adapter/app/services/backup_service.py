@@ -11,9 +11,10 @@ Backups are created as tar.gz archives with original UUIDs and timestamps preser
 """
 
 import logging
-# CRITICAL: Import json BEFORE graphiti_client to get ORIGINAL json.loads
-# graphiti_client patches json.loads to clean markdown, which breaks valid JSON in backups
-import json as original_json
+import json
+# CRITICAL: graphiti_client patches json.loads which breaks our valid JSON
+# Use JSONDecoder directly to bypass the patch
+from json import JSONDecoder, JSONEncoder
 import tarfile
 import io
 from datetime import datetime, timezone
@@ -23,6 +24,18 @@ from neo4j import AsyncDriver
 from app.models.schemas import BackupMetadata, RestoreResponse
 
 logger = logging.getLogger(__name__)
+
+# Create unpatched JSON decoder/encoder instances
+_json_decoder = JSONDecoder()
+_json_encoder = JSONEncoder(indent=2, ensure_ascii=False)
+
+def _safe_json_loads(s):
+    """Load JSON without going through patched json.loads"""
+    return _json_decoder.decode(s)
+
+def _safe_json_dumps(obj):
+    """Dump JSON without going through patched json.dumps"""
+    return _json_encoder.encode(obj)
 
 
 class BackupService:
@@ -150,19 +163,19 @@ class BackupService:
             tar.addfile(metadata_info, io.BytesIO(metadata_json.encode('utf-8')))
             
             # Add episodes.json
-            episodes_json = original_json.dumps(episodes, indent=2, ensure_ascii=False)
+            episodes_json = _safe_json_dumps(episodes)
             episodes_info = tarfile.TarInfo(name='episodes.json')
             episodes_info.size = len(episodes_json.encode('utf-8'))
             tar.addfile(episodes_info, io.BytesIO(episodes_json.encode('utf-8')))
             
             # Add entities.json
-            entities_json = original_json.dumps(entities, indent=2, ensure_ascii=False)
+            entities_json = _safe_json_dumps(entities)
             entities_info = tarfile.TarInfo(name='entities.json')
             entities_info.size = len(entities_json.encode('utf-8'))
             tar.addfile(entities_info, io.BytesIO(entities_json.encode('utf-8')))
             
             # Add edges.json
-            edges_json = original_json.dumps(edges, indent=2, ensure_ascii=False)
+            edges_json = _safe_json_dumps(edges)
             edges_info = tarfile.TarInfo(name='edges.json')
             edges_info.size = len(edges_json.encode('utf-8'))
             tar.addfile(edges_info, io.BytesIO(edges_json.encode('utf-8')))
@@ -195,7 +208,7 @@ class BackupService:
                 if not metadata_file:
                     raise ValueError("Invalid backup: missing metadata.json")
                 
-                metadata_dict = original_json.loads(metadata_file.read().decode('utf-8'))
+                metadata_dict = _safe_json_loads(metadata_file.read().decode('utf-8'))
                 original_user_id = metadata_dict['user_id']
                 
                 # Use new_user_id if provided, otherwise use original
@@ -219,21 +232,21 @@ class BackupService:
                 
                 # Parse with fallback to empty list for any JSON errors
                 try:
-                    episodes = original_json.loads(episodes_content) if episodes_content else []
+                    episodes = _safe_json_loads(episodes_content) if episodes_content else []
                 except (original_json.JSONDecodeError, ValueError) as e:
                     logger.warning(f"Failed to parse episodes.json: {e}")
                     logger.warning(f"Content preview (first 500 chars): {episodes_content[:500]!r}")
                     episodes = []
                 
                 try:
-                    entities = original_json.loads(entities_content) if entities_content else []
+                    entities = _safe_json_loads(entities_content) if entities_content else []
                 except (original_json.JSONDecodeError, ValueError) as e:
                     logger.warning(f"Failed to parse entities.json: {e}")
                     logger.warning(f"Content preview (first 200 chars): {entities_content[:200]!r}")
                     entities = []
                 
                 try:
-                    edges = original_json.loads(edges_content) if edges_content else []
+                    edges = _safe_json_loads(edges_content) if edges_content else []
                 except (original_json.JSONDecodeError, ValueError) as e:
                     logger.warning(f"Failed to parse edges.json: {e}")
                     logger.warning(f"Content preview (first 200 chars): {edges_content[:200]!r}")
