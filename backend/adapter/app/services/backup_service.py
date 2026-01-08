@@ -11,7 +11,9 @@ Backups are created as tar.gz archives with original UUIDs and timestamps preser
 """
 
 import logging
-import json
+# CRITICAL: Import json BEFORE graphiti_client to get ORIGINAL json.loads
+# graphiti_client patches json.loads to clean markdown, which breaks valid JSON in backups
+import json as original_json
 import tarfile
 import io
 from datetime import datetime, timezone
@@ -148,19 +150,19 @@ class BackupService:
             tar.addfile(metadata_info, io.BytesIO(metadata_json.encode('utf-8')))
             
             # Add episodes.json
-            episodes_json = json.dumps(episodes, indent=2, ensure_ascii=False)
+            episodes_json = original_json.dumps(episodes, indent=2, ensure_ascii=False)
             episodes_info = tarfile.TarInfo(name='episodes.json')
             episodes_info.size = len(episodes_json.encode('utf-8'))
             tar.addfile(episodes_info, io.BytesIO(episodes_json.encode('utf-8')))
             
             # Add entities.json
-            entities_json = json.dumps(entities, indent=2, ensure_ascii=False)
+            entities_json = original_json.dumps(entities, indent=2, ensure_ascii=False)
             entities_info = tarfile.TarInfo(name='entities.json')
             entities_info.size = len(entities_json.encode('utf-8'))
             tar.addfile(entities_info, io.BytesIO(entities_json.encode('utf-8')))
             
             # Add edges.json
-            edges_json = json.dumps(edges, indent=2, ensure_ascii=False)
+            edges_json = original_json.dumps(edges, indent=2, ensure_ascii=False)
             edges_info = tarfile.TarInfo(name='edges.json')
             edges_info.size = len(edges_json.encode('utf-8'))
             tar.addfile(edges_info, io.BytesIO(edges_json.encode('utf-8')))
@@ -193,7 +195,7 @@ class BackupService:
                 if not metadata_file:
                     raise ValueError("Invalid backup: missing metadata.json")
                 
-                metadata_dict = json.loads(metadata_file.read().decode('utf-8'))
+                metadata_dict = original_json.loads(metadata_file.read().decode('utf-8'))
                 original_user_id = metadata_dict['user_id']
                 
                 # Use new_user_id if provided, otherwise use original
@@ -217,21 +219,21 @@ class BackupService:
                 
                 # Parse with fallback to empty list for any JSON errors
                 try:
-                    episodes = json.loads(episodes_content) if episodes_content else []
+                    episodes = original_json.loads(episodes_content) if episodes_content else []
                 except (json.JSONDecodeError, ValueError) as e:
                     logger.warning(f"Failed to parse episodes.json: {e}")
                     logger.warning(f"Content preview (first 500 chars): {episodes_content[:500]!r}")
                     episodes = []
                 
                 try:
-                    entities = json.loads(entities_content) if entities_content else []
+                    entities = original_json.loads(entities_content) if entities_content else []
                 except (json.JSONDecodeError, ValueError) as e:
                     logger.warning(f"Failed to parse entities.json: {e}")
                     logger.warning(f"Content preview (first 200 chars): {entities_content[:200]!r}")
                     entities = []
                 
                 try:
-                    edges = json.loads(edges_content) if edges_content else []
+                    edges = original_json.loads(edges_content) if edges_content else []
                 except (json.JSONDecodeError, ValueError) as e:
                     logger.warning(f"Failed to parse edges.json: {e}")
                     logger.warning(f"Content preview (first 200 chars): {edges_content[:200]!r}")
