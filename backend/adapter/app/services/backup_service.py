@@ -220,21 +220,21 @@ class BackupService:
                 # Parse with fallback to empty list for any JSON errors
                 try:
                     episodes = original_json.loads(episodes_content) if episodes_content else []
-                except (json.JSONDecodeError, ValueError) as e:
+                except (original_json.JSONDecodeError, ValueError) as e:
                     logger.warning(f"Failed to parse episodes.json: {e}")
                     logger.warning(f"Content preview (first 500 chars): {episodes_content[:500]!r}")
                     episodes = []
                 
                 try:
                     entities = original_json.loads(entities_content) if entities_content else []
-                except (json.JSONDecodeError, ValueError) as e:
+                except (original_json.JSONDecodeError, ValueError) as e:
                     logger.warning(f"Failed to parse entities.json: {e}")
                     logger.warning(f"Content preview (first 200 chars): {entities_content[:200]!r}")
                     entities = []
                 
                 try:
                     edges = original_json.loads(edges_content) if edges_content else []
-                except (json.JSONDecodeError, ValueError) as e:
+                except (original_json.JSONDecodeError, ValueError) as e:
                     logger.warning(f"Failed to parse edges.json: {e}")
                     logger.warning(f"Content preview (first 200 chars): {edges_content[:200]!r}")
                     edges = []
