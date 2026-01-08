@@ -45,19 +45,11 @@ class ReprocessingService:
             errors = 0
             
             logger.info(f"Starting reprocessing {total} episodes for user {user_id}")
+            logger.info(f"SAFE MODE: NOT deleting existing episodes, only adding Entity nodes")
             
-            # Delete all old episodes first (they will be recreated by add_episode)
-            delete_query = """
-            MATCH (e:Episodic)
-            WHERE e.name STARTS WITH $user_prefix
-            DETACH DELETE e
-            """
-            await driver.execute_query(
-                delete_query,
-                user_prefix=f"{user_id}_",
-                database_="neo4j"
-            )
-            logger.info(f"Deleted {total} old episodes for user {user_id}")
+            # SAFETY: We do NOT delete old episodes anymore!
+            # Just process each episode to create Entity nodes
+            # This is safe - if reprocessing fails, original episodes remain intact
             
             # Process each episode
             for i, episode in enumerate(episodes):
@@ -65,7 +57,7 @@ class ReprocessingService:
                     logger.info(f"Reprocessing episode {i+1}/{total} for user {user_id}")
                     
                     # Use the existing add_episode method which will:
-                    # 1. Create new Episodic node
+                    # 1. Create new Episodic node (may be duplicate - OK!)
                     # 2. Extract entities with LLM
                     # 3. Create Entity nodes and relationships
                     metadata = {}
