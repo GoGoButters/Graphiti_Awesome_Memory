@@ -1046,6 +1046,21 @@ class GraphitiWrapper:
             if debug_result.records:
                 logger.info(f"DEBUG: Found {debug_result.records[0]['episode_count']} episodes, samples: {debug_result.records[0]['sample_names']}")
             
+            # Debug: Check if there are PendingEpisode nodes (unprocessed)
+            debug_pending = """
+            MATCH (p:PendingEpisode)
+            WHERE p.user_id STARTS WITH $user_prefix OR p.user_id = $user_id
+            RETURN COUNT(p) as pending_count
+            """
+            pending_result = await driver.execute_query(
+                debug_pending,
+                user_prefix=f"{user_id}_",
+                user_id=user_id,
+                database_="neo4j"
+            )
+            if pending_result.records:
+                logger.info(f"DEBUG: Found {pending_result.records[0]['pending_count']} PendingEpisode nodes (unprocessed)")
+            
             # Debug: Check what entities exist
             debug_entities = """
             MATCH (n:Entity)
