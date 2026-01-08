@@ -1147,15 +1147,15 @@ class GraphitiWrapper:
             else:
                 logger.info(f"DEBUG: NO entities have group_id set!")
             
-            # Main query - traverse from user's episodes to their entities
-            # This ensures we ONLY get entities mentioned in THIS user's episodes
+            # Main query - use group_id since Graphiti correctly sets it during processing
+            # Debug showed entities DO have group_id, so this is safe and performant
             query = """
             MATCH (e:Episodic)
             WHERE e.name STARTS WITH $user_prefix
             MATCH (e)-[:MENTIONS]->(n:Entity)
+            WHERE n.group_id = $user_id
             OPTIONAL MATCH (n)-[r:RELATES_TO]-(m:Entity)
-            WHERE exists((e2:Episodic)-[:MENTIONS]->(m)) 
-              AND (e2.name STARTS WITH $user_prefix)
+            WHERE m.group_id = $user_id
             
             RETURN 
                 collect(DISTINCT n) as entities,
@@ -1165,6 +1165,7 @@ class GraphitiWrapper:
             result = await driver.execute_query(
                 query,
                 user_prefix=f"{user_id}_",
+                user_id=user_id,
                 database_="neo4j"
             )
             
