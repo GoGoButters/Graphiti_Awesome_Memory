@@ -173,9 +173,11 @@ class BackupService:
         """
         Restore user data from backup archive
         
+        SAFETY: This method NEVER deletes existing data. It always uses MERGE to add/update.
+        
         Args:
             archive_bytes: tar.gz archive bytes
-            replace: If True, delete existing user data first
+            replace: DEPRECATED - ignored for safety (always uses MERGE)
             new_user_id: Optional new user ID (for renaming during restore)
             
         Returns:
@@ -197,24 +199,7 @@ class BackupService:
                 # Use new_user_id if provided, otherwise use original
                 target_user_id = new_user_id if new_user_id else original_user_id
                 
-                logger.info(f"Restoring backup: original={original_user_id}, target={target_user_id}, replace={replace}")
-                
-                # Check if target user exists
-                check_query = """
-                MATCH (e:Episodic)
-                WHERE e.name STARTS WITH $user_prefix
-                RETURN count(e) as count
-                """
-                
-                async with self.driver.session() as session:
-                    result = await session.run(check_query, user_prefix=f"{target_user_id}_")
-                    record = await result.single()
-                    existing_count = record["count"] if record else 0
-                
-                # Delete existing data if replace=True
-                if replace and existing_count > 0:
-                    logger.info(f"Deleting existing data for user {target_user_id}")
-                    await self._delete_user_data(target_user_id)
+                logger.info(f"Restoring backup (SAFE MERGE mode): original={original_user_id}, target={target_user_id}")
                 
                 # Extract data files
                 episodes_file = tar.extractfile('episodes.json')
@@ -234,9 +219,12 @@ class BackupService:
                     # Replace user_id in episode name (format: {user_id}_{timestamp})
                     if episode.get('name', '').startswith(f"{original_user_id}_"):
                         episode['name'] = episode['name'].replace(f"{original_user_id}_", f"{new_user_id}_", 1)
+                    # Update group_id if present
+                    if episode.get('group_id') == original_user_id:
+                        episode['group_id'] = new_user_id
             
-            # Import data
-            stats = await self._import_data(target_user_id, episodes, entities, edges, merge=not replace)
+            # Import data - ALWAYS use merge=True for safety
+            stats = await self._import_data(target_user_id, episodes, entities, edges, merge=True)
             
             return RestoreResponse(
                 status="success",
@@ -245,7 +233,7 @@ class BackupService:
                 entities_created=stats['entities_created'],
                 edges_created=stats['edges_created'],
                 conflicts_skipped=stats['conflicts_skipped'],
-                message=f"Successfully restored backup for user {target_user_id}"
+                message=f"Successfully restored backup for user {target_user_id} (MERGE mode - existing data preserved)"
             )
             
         except Exception as e:
@@ -255,6 +243,7 @@ class BackupService:
                 user_id="unknown",
                 message=f"Failed to restore backup: {str(e)}"
             )
+
     
     async def _delete_user_data(self, user_id: str):
         """Delete all data for a user"""

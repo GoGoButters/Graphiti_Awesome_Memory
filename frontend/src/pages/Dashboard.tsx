@@ -84,8 +84,8 @@ export default function Dashboard() {
             return;
         }
 
-        if (restoreUserExists && !restoreReplace && !restoreNewUserId.trim()) {
-            alert('Please enter a new user ID or choose to replace existing data');
+        if (restoreUserExists && !restoreNewUserId.trim()) {
+            alert('User already exists. Please enter a new user ID to restore with a different name.');
             return;
         }
 
@@ -96,8 +96,9 @@ export default function Dashboard() {
             formData.append('file', restoreFile);
 
             const params = new URLSearchParams();
-            params.append('replace', restoreReplace.toString());
-            if (restoreUserExists && !restoreReplace && restoreNewUserId.trim()) {
+            // Always use MERGE mode (replace=false) for safety
+            params.append('replace', 'false');
+            if (restoreUserExists && restoreNewUserId.trim()) {
                 params.append('new_user_id', restoreNewUserId.trim());
             }
 
@@ -115,10 +116,10 @@ export default function Dashboard() {
             alert(
                 `Restore successful!\n\n` +
                 `User: ${result.user_id}\n` +
-                `Episodes: ${result.episodes_created}\n` +
-                `Entities: ${result.entities_created}\n` +
-                `Edges: ${result.edges_created}\n` +
-                `Conflicts skipped: ${result.conflicts_skipped}`
+                `Episodes: ${result.episodes_created} created\n` +
+                `Entities: ${result.entities_created} created\n` +
+                `Edges: ${result.edges_created} created\n` +
+                (result.conflicts_skipped > 0 ? `\nSkipped ${result.conflicts_skipped} existing items (MERGE mode)` : '')
             );
 
             setShowRestoreDialog(false);
