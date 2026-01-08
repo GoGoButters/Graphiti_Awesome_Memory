@@ -1060,6 +1060,21 @@ class GraphitiWrapper:
             if entity_result.records:
                 logger.info(f"DEBUG: Found {entity_result.records[0]['entity_count']} entities with group_id={user_id}")
             
+            # Debug: Check what group_ids actually exist for entities
+            debug_group_ids = """
+            MATCH (n:Entity)
+            WHERE n.group_id IS NOT NULL
+            RETURN DISTINCT n.group_id as group_id
+            LIMIT 10
+            """
+            group_id_result = await driver.execute_query(
+                debug_group_ids,
+                database_="neo4j"
+            )
+            if group_id_result.records:
+                sample_group_ids = [r['group_id'] for r in group_id_result.records]
+                logger.info(f"DEBUG: Sample entity group_ids in DB: {sample_group_ids}")
+            
             # Try simplified query - just get entities by group_id
             query = """
             MATCH (n:Entity)
