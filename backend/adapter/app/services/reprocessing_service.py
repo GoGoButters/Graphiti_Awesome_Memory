@@ -81,16 +81,65 @@ class ReprocessingService:
             
             logger.info(f"Reprocessing complete for user {user_id}: {processed} processed, {errors} errors")
             
+            # CLEANUP: Remove duplicate episodes (old ones without MENTIONS relationships)
+            logger.info(f"Cleaning up duplicate episodes for user {user_id}...")
+            cleanup_stats = await self._cleanup_duplicate_episodes(user_id)
+            logger.info(f"Cleanup complete: {cleanup_stats}")
+            
             return {
                 "user_id": user_id,
                 "total_episodes": total,
                 "processed": processed,
-                "errors": errors
+                "errors": errors,
+                "duplicates_removed": cleanup_stats.get("deleted", 0)
             }
             
         except Exception as e:
             logger.error(f"Error reprocessing user {user_id}: {e}", exc_info=True)
             raise
+    
+    async def _cleanup_duplicate_episodes(self, user_id: str) -> dict:
+        """
+        Remove duplicate episodes after reprocessing.
+        
+        Strategy: Delete episodes that have NO :MENTIONS relationships.
+        These are the old episodes - new ones have Entity connections.
+        """
+        try:
+            driver = graphiti_client.client.driver
+            
+            # Find and delete episodes without MENTIONS relationships
+            cleanup_query = """
+            MATCH (e:Episodic)
+            WHERE e.name STARTS WITH $user_prefix
+            AND NOT EXISTS {
+                MATCH (e)-[:MENTIONS]->(:Entity)
+            }
+            WITH e
+            DETACH DELETE e
+            RETURN count(e) as deleted
+            """
+            
+            result = await driver.execute_query(
+                cleanup_query,
+                user_prefix=f"{user_id}_",
+                database_="neo4j"
+            )
+            
+            deleted_count = result.records[0]['deleted'] if result.records else 0
+            
+            return {
+                "deleted": deleted_count,
+                "status": "success"
+            }
+            
+        except Exception as e:
+            logger.error(f"Error cleaning up duplicates for user {user_id}: {e}")
+            return {
+                "deleted": 0,
+                "status": "error",
+                "error": str(e)
+            }
     
     async def reprocess_all_users(self) -> Dict[str, Any]:
         """
