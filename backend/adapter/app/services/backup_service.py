@@ -97,8 +97,7 @@ class BackupService:
         MATCH (e:Episodic)
         WHERE e.name STARTS WITH $user_prefix
         MATCH (e)-[:MENTIONS]->(entity1:Entity)
-        MATCH (entity1)-[r]-(entity2:Entity)
-        WHERE type(r) <> 'RELATES_TO'
+        MATCH (entity1)-[r:RELATES_TO]-(entity2:Entity)
         WITH DISTINCT r, entity1, entity2
         RETURN {
             uuid: r.uuid,
