@@ -75,7 +75,7 @@ class BackupService:
         query = """
         MATCH (e:Episodic)
         WHERE e.name STARTS WITH $user_prefix
-        MATCH (e)-[:RELATES_TO]->(entity:Entity)
+        MATCH (e)-[:MENTIONS]->(entity:Entity)
         WITH DISTINCT entity
         RETURN entity {
             .*,
@@ -96,7 +96,7 @@ class BackupService:
         query = """
         MATCH (e:Episodic)
         WHERE e.name STARTS WITH $user_prefix
-        MATCH (e)-[:RELATES_TO]->(entity1:Entity)
+        MATCH (e)-[:MENTIONS]->(entity1:Entity)
         MATCH (entity1)-[r]-(entity2:Entity)
         WHERE type(r) <> 'RELATES_TO'
         WITH DISTINCT r, entity1, entity2
