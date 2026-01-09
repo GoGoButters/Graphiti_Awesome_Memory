@@ -190,13 +190,30 @@ curl -H "X-API-KEY: adapter-secret-api-key" \
 
 Admin endpoints require JWT token obtained by logging into the Admin UI at `http://<SERVER_IP>:3000`.
 
+#### User Management
 - `GET /admin/users` - List all users with episode counts
 - `GET /admin/users/{user_id}/graph` - Get user's knowledge graph
 - `GET /admin/users/{user_id}/episodes?limit=N` - Get user episodes (admin)
 - `DELETE /admin/users/{user_id}` - Delete user and all data
+
+#### File Management
 - `GET /admin/users/{user_id}/files` - List user files and chunk counts
 - `DELETE /admin/users/{user_id}/files?file_name=...` - Delete all chunks for a file
 - `DELETE /admin/episodes/{episode_uuid}` - Delete specific episode
+
+#### Backup & Restore
+- `GET /admin/users/{user_id}/backup` - Create and download backup (`.tar.gz` with episodes, entities, edges)
+- `POST /admin/users/restore` - Upload and restore backup file
+  - Supports restoring to different user ID
+  - **Safe MERGE mode** - never deletes existing data, only adds/updates
+  - Handles UTF-8 properly for all languages
+
+#### Reprocessing (Graph Rebuild)
+- `POST /admin/reprocess/{user_id}` - Reprocess episodes to rebuild Entity nodes
+- `POST /admin/reprocess-all` - Reprocess all users
+  - **Safe mode** - does NOT delete episodes, only creates Entity nodes
+  - Useful after Graphiti updates or to fix missing graph data
+  - May create duplicate episodes (can be cleaned later if needed)
 
 ## Performance Optimization
 
