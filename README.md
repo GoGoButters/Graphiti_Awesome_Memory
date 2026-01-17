@@ -1,9 +1,9 @@
 <div align="center">
   <img src="logo.png" alt="Graphiti Logo" width="400"/>
 
-  # Full-stack Graphiti Memory Platform
-</div>
+# Full-stack Graphiti Memory Platform
 
+</div>
 
 A production-ready dev setup for a Graphiti memory platform, featuring a FastAPI adapter, React Admin UI, and background worker.
 
@@ -27,16 +27,19 @@ A production-ready dev setup for a Graphiti memory platform, featuring a FastAPI
 ## Quick Setup
 
 ### 1. Clone & Configure
+
 ```bash
-git clone https://github.com/GoGoButters/Graphiti_Awesome_Memory.git
+git clone -b dev https://github.com/GoGoButters/Graphiti_Awesome_Memory.git
 cd Graphiti_Awesome_Memory
 
 # Configure secrets
 nano config.yml
 ```
+
 Update `config.yml` with your API keys (LLM, Embeddings, Neo4j, etc.).
 
 ### 2. Start Services
+
 ```bash
 # Generate env files and start Docker containers
 bash scripts/generate_envs.sh
@@ -44,16 +47,19 @@ docker compose up -d --build
 ```
 
 That's it! Services will be available at:
-- **Adapter API**: http://localhost:8000/docs
-- **Admin UI**: http://localhost:3000
-- **Neo4j Browser**: http://localhost:7474
+
+- **Adapter API**: <http://localhost:8000/docs>
+- **Admin UI**: <http://localhost:3000>
+- **Neo4j Browser**: <http://localhost:7474>
 
 ## API Usage
 
 All API endpoints use `X-API-KEY` header for authentication (default: `adapter-secret-api-key`).
 
 ### Append Memory
+
 Add a new memory episode for a user:
+
 ```bash
 curl -X POST http://<SERVER_IP>:8000/memory/append \
   -H "Content-Type: application/json" \
@@ -62,6 +68,7 @@ curl -X POST http://<SERVER_IP>:8000/memory/append \
 ```
 
 **Response:**
+
 ```json
 {
   "episode_id": "user123_2025-12-01T12:00:00.000000+00:00",
@@ -70,6 +77,7 @@ curl -X POST http://<SERVER_IP>:8000/memory/append \
 ```
 
 #### With File Metadata (Document RAG)
+
 This feature is designed for **Document RAG** scenarios where you use an **external text extractor and chunking** (e.g., n8n, LangChain). By passing `file_name`, you link multiple chunks to a single source document.
 
 ```bash
@@ -85,10 +93,13 @@ curl -X POST http://<SERVER_IP>:8000/memory/append \
     }
   }'
 ```
+
 This allows for bulk deletion of all chunks belonging to this file later.
 
 ### Query Memory
+
 Search user's memories using semantic search:
+
 ```bash
 curl -X POST http://<SERVER_IP>:8000/memory/query \
   -H "Content-Type: application/json" \
@@ -97,6 +108,7 @@ curl -X POST http://<SERVER_IP>:8000/memory/query \
 ```
 
 **Response:**
+
 ```json
 {
   "results": [
@@ -115,7 +127,9 @@ curl -X POST http://<SERVER_IP>:8000/memory/query \
 ```
 
 ### Query Memory (Grouped by Source)
+
 Search user's memories and get results grouped by source (files vs conversation):
+
 ```bash
 curl -X POST http://<SERVER_IP>:8000/memory/query/grouped \
   -H "Content-Type: application/json" \
@@ -124,6 +138,7 @@ curl -X POST http://<SERVER_IP>:8000/memory/query/grouped \
 ```
 
 **Response:**
+
 ```json
 {
   "groups": [
@@ -149,7 +164,9 @@ curl -X POST http://<SERVER_IP>:8000/memory/query/grouped \
 This endpoint is useful for AI agents that need to understand where each fact came from.
 
 ### Generate Summary
+
 Create a summary of user's memories:
+
 ```bash
 curl -X POST http://<SERVER_IP>:8000/memory/summary \
   -H "Content-Type: application/json" \
@@ -158,21 +175,27 @@ curl -X POST http://<SERVER_IP>:8000/memory/summary \
 ```
 
 ### Delete File (Bulk Cleanup)
+
 Delete all episodes and orphaned entities associated with a specific file:
+
 ```bash
 curl -X DELETE "http://<SERVER_IP>:8000/memory/files?user_id=user123&file_name=report_2024.pdf" \
   -H "X-API-KEY: adapter-secret-api-key"
 ```
+
 This is useful for re-indexing documents or removing outdated knowledge.
 
 ### Get User Episodes
+
 Retrieve user's recent episodes with optional limit:
+
 ```bash
 curl -H "X-API-KEY: adapter-secret-api-key" \
   "http://<SERVER_IP>:8000/memory/users/user123/episodes?limit=10"
 ```
 
 **Response:**
+
 ```json
 {
   "episodes": [
@@ -191,17 +214,20 @@ curl -H "X-API-KEY: adapter-secret-api-key" \
 Admin endpoints require JWT token obtained by logging into the Admin UI at `http://<SERVER_IP>:3000`.
 
 #### User Management
+
 - `GET /admin/users` - List all users with episode counts
 - `GET /admin/users/{user_id}/graph` - Get user's knowledge graph
 - `GET /admin/users/{user_id}/episodes?limit=N` - Get user episodes (admin)
 - `DELETE /admin/users/{user_id}` - Delete user and all data
 
 #### File Management
+
 - `GET /admin/users/{user_id}/files` - List user files and chunk counts
 - `DELETE /admin/users/{user_id}/files?file_name=...` - Delete all chunks for a file
 - `DELETE /admin/episodes/{episode_uuid}` - Delete specific episode
 
 #### Backup & Restore
+
 - `GET /admin/users/{user_id}/backup` - Create and download backup (`.tar.gz` with episodes, entities, edges)
 - `POST /admin/users/restore` - Upload and restore backup file
   - Supports restoring to different user ID
@@ -209,6 +235,7 @@ Admin endpoints require JWT token obtained by logging into the Admin UI at `http
   - Handles UTF-8 properly for all languages
 
 #### Reprocessing (Graph Rebuild)
+
 - `POST /admin/reprocess/{user_id}` - Reprocess episodes to rebuild Entity nodes
 - `POST /admin/reprocess-all` - Reprocess all users
   - **Safe mode** - does NOT delete episodes, only creates Entity nodes
@@ -240,6 +267,12 @@ llm_fast:
   base_url: http://your-server:4000/v1
   api_key: your-key
   model: qwen2.5:7b  # Fast non-reasoning model
+
+# Optional: Reranker for improved search relevance
+reranker:
+  base_url: http://your-reranker:8080/v1
+  api_key: your-key
+  model: jina-reranker-v2
 ```
 
 #### Concurrency Tuning
@@ -258,12 +291,14 @@ environment:
 ## Development
 
 ### Directory Structure
+
 - `backend/adapter`: FastAPI application.
 - `worker`: Background worker.
 - `frontend`: React Admin UI.
 - `infra`: Infrastructure config (Nginx).
 
 ### Running Tests
+
 ```bash
 make test
 ```
@@ -272,8 +307,8 @@ make test
 
 - **Secrets**: In production, use a secret manager (Vault, K8s Secrets) instead of `.env` files.
 - **Auth**:
-    - Adapter uses API Key (`X-API-KEY`).
-    - Admin UI uses JWT (Login with credentials from `config.yml`).
+  - Adapter uses API Key (`X-API-KEY`).
+  - Admin UI uses JWT (Login with credentials from `config.yml`).
 - **Network**: Ensure Neo4j and Redis ports are not exposed to the public internet in production.
 
 ## Support the Project
