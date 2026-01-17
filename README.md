@@ -29,7 +29,7 @@ A production-ready dev setup for a Graphiti memory platform, featuring a FastAPI
 ### 1. Clone & Configure
 
 ```bash
-git clone https://github.com/GoGoButters/Graphiti_Awesome_Memory.git
+git clone -b dev https://github.com/GoGoButters/Graphiti_Awesome_Memory.git
 cd Graphiti_Awesome_Memory
 
 # Configure secrets
