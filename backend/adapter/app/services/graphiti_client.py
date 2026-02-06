@@ -296,42 +296,106 @@ class RemoteRerankerClient(CrossEncoderClient):
         if not passages:
             return []
 
+        # Configuration for avoiding 400 Bad Request due to context length
+        MAX_DOC_LENGTH = 500  # Max characters per document
+        MAX_BATCH_SIZE = 50  # Max documents per request
+
+        # Truncate long documents to avoid exceeding model context
+        truncated_passages = [
+            p[:MAX_DOC_LENGTH] if len(p) > MAX_DOC_LENGTH else p for p in passages
+        ]
+
         url = self.rerank_url
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
-        payload = {
-            "model": self.model,
-            "query": query,
-            "documents": passages,
-            "top_n": len(passages),  # Return all, sorted
-        }
 
         try:
-            logger.info(f"Reranking {len(passages)} passages via {url}")
-            response = await self.client.post(url, headers=headers, json=payload)
-            response.raise_for_status()
+            # Process in batches if too many documents
+            if len(truncated_passages) <= MAX_BATCH_SIZE:
+                # Single batch - simple case
+                payload = {
+                    "model": self.model,
+                    "query": query,
+                    "documents": truncated_passages,
+                    "top_n": len(truncated_passages),
+                }
+                logger.info(f"Reranking {len(truncated_passages)} passages via {url}")
+                response = await self.client.post(url, headers=headers, json=payload)
+                response.raise_for_status()
 
-            data = response.json()
-            # Expecting Jina/Cohere format: {"results": [{"index": i, "relevance_score": s}, ...]}
-            results = data.get("results", [])
+                data = response.json()
+                results = data.get("results", [])
 
-            # Map results back to passages
-            ranked = []
-            for res in results:
-                idx = res.get("index")
-                score = res.get("relevance_score")
-                if idx is not None and 0 <= idx < len(passages):
-                    ranked.append((passages[idx], float(score)))
+                # Map results back to original passages (not truncated)
+                ranked = []
+                for res in results:
+                    idx = res.get("index")
+                    score = res.get("relevance_score")
+                    if idx is not None and 0 <= idx < len(passages):
+                        ranked.append((passages[idx], float(score)))
 
-            logger.info(
-                f"Rerank success, top score: {ranked[0][1] if ranked else 'none'}"
-            )
-            return ranked
+                logger.info(
+                    f"Rerank success, top score: {ranked[0][1] if ranked else 'none'}"
+                )
+                return ranked
+            else:
+                # Multiple batches - aggregate results
+                logger.info(
+                    f"Reranking {len(truncated_passages)} passages in {(len(truncated_passages) + MAX_BATCH_SIZE - 1) // MAX_BATCH_SIZE} batches"
+                )
+                all_results = []
+
+                for batch_start in range(0, len(truncated_passages), MAX_BATCH_SIZE):
+                    batch_end = min(
+                        batch_start + MAX_BATCH_SIZE, len(truncated_passages)
+                    )
+                    batch = truncated_passages[batch_start:batch_end]
+
+                    payload = {
+                        "model": self.model,
+                        "query": query,
+                        "documents": batch,
+                        "top_n": len(batch),
+                    }
+
+                    logger.info(
+                        f"Reranking batch {batch_start // MAX_BATCH_SIZE + 1}: {len(batch)} passages"
+                    )
+                    response = await self.client.post(
+                        url, headers=headers, json=payload
+                    )
+                    response.raise_for_status()
+
+                    data = response.json()
+                    batch_results = data.get("results", [])
+
+                    # Adjust indices to global position and use original passages
+                    for res in batch_results:
+                        local_idx = res.get("index")
+                        score = res.get("relevance_score")
+                        if local_idx is not None:
+                            global_idx = batch_start + local_idx
+                            if 0 <= global_idx < len(passages):
+                                all_results.append((passages[global_idx], float(score)))
+
+                # Sort all results by score descending
+                all_results.sort(key=lambda x: x[1], reverse=True)
+
+                logger.info(
+                    f"Rerank success (batched), top score: {all_results[0][1] if all_results else 'none'}"
+                )
+                return all_results
 
         except Exception as e:
             logger.error(f"Remote reranking failed: {e}")
+            # Log document stats for debugging
+            doc_lengths = [len(p) for p in passages]
+            logger.error(
+                f"Rerank debug: query_len={len(query)}, num_docs={len(passages)}, "
+                f"doc_lengths: min={min(doc_lengths)}, max={max(doc_lengths)}, avg={sum(doc_lengths) // len(doc_lengths)}"
+            )
             raise e
 
 
