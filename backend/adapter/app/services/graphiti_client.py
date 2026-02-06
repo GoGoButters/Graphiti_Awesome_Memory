@@ -42,12 +42,13 @@ def _parse_edge_duplicate_response(text: str) -> Optional[dict]:
     - []  (No duplicates found)
       Contradicted Facts: []
     - {"duplicate_facts": [], "fact_type": DEFAULT, "contradicted_facts": []}  (unquoted DEFAULT)
+    - Duplicate Facts: [] / Contradicted Facts: [0] (space in names)
     """
     result = {"duplicate_facts": [], "fact_type": "DEFAULT", "contradicted_facts": []}
 
     found_any = False
 
-    # Pattern 1: YAML-like key: value format
+    # Pattern 1a: YAML-like key: value format (underscore version)
     # Match duplicate_facts: [] or duplicate_facts: [1, 2]
     dup_match = re.search(r"duplicate_facts[:\s]+\[([^\]]*)\]", text, re.IGNORECASE)
     if dup_match:
@@ -58,13 +59,35 @@ def _parse_edge_duplicate_response(text: str) -> Optional[dict]:
                 int(x.strip()) for x in vals.split(",") if x.strip().isdigit()
             ]
 
+    # Pattern 1b: Space version - "Duplicate Facts: []"
+    if not dup_match:
+        dup_match2 = re.search(
+            r"duplicate\s+facts[:\s]+\[([^\]]*)\]", text, re.IGNORECASE
+        )
+        if dup_match2:
+            found_any = True
+            vals = dup_match2.group(1).strip()
+            if vals:
+                result["duplicate_facts"] = [
+                    int(x.strip()) for x in vals.split(",") if x.strip().isdigit()
+                ]
+
     # Match fact_type: DEFAULT or fact_type: "DEFAULT" or "fact_type": DEFAULT
     type_match = re.search(r'fact_type[:\s]+["\']?(\w+)["\']?', text, re.IGNORECASE)
     if type_match:
         found_any = True
         result["fact_type"] = type_match.group(1).upper()
 
-    # Match contradicted_facts: [] or contradicted_facts: [6, 7]
+    # Pattern 1b for type: "Fact Type: DEFAULT"
+    if not type_match:
+        type_match2 = re.search(
+            r'fact\s+type[:\s]+["\']?(\w+)["\']?', text, re.IGNORECASE
+        )
+        if type_match2:
+            found_any = True
+            result["fact_type"] = type_match2.group(1).upper()
+
+    # Pattern 2a: Match contradicted_facts: [] or contradicted_facts: [6, 7] (underscore)
     contra_match = re.search(
         r"contradicted_facts[:\s]+\[([^\]]*)\]", text, re.IGNORECASE
     )
@@ -76,7 +99,20 @@ def _parse_edge_duplicate_response(text: str) -> Optional[dict]:
                 int(x.strip()) for x in vals.split(",") if x.strip().isdigit()
             ]
 
-    # Pattern 2: Check for "No duplicates found" or similar text patterns
+    # Pattern 2b: Space version - "Contradicted Facts: [0]"
+    if not contra_match:
+        contra_match2 = re.search(
+            r"contradicted\s+facts[:\s]+\[([^\]]*)\]", text, re.IGNORECASE
+        )
+        if contra_match2:
+            found_any = True
+            vals = contra_match2.group(1).strip()
+            if vals:
+                result["contradicted_facts"] = [
+                    int(x.strip()) for x in vals.split(",") if x.strip().isdigit()
+                ]
+
+    # Pattern 3: Check for "No duplicates found" or similar text patterns
     if "no duplicates" in text.lower() or "no duplicate" in text.lower():
         found_any = True
         result["duplicate_facts"] = []
@@ -84,6 +120,42 @@ def _parse_edge_duplicate_response(text: str) -> Optional[dict]:
     if "no contradictions" in text.lower() or "no contradiction" in text.lower():
         found_any = True
         result["contradicted_facts"] = []
+
+    # Pattern 4: Handle structured response sections like "1. DUPLICATE DETECTION:", etc.
+    # This handles free-form responses that describe results in sections
+    if "duplicate detection" in text.lower():
+        found_any = True
+        # Look for idx values or empty list mentions
+        idx_match = re.search(r"idx\s*values?[:\s]+\[([^\]]*)\]", text, re.IGNORECASE)
+        if idx_match:
+            vals = idx_match.group(1).strip()
+            if vals:
+                result["duplicate_facts"] = [
+                    int(x.strip()) for x in vals.split(",") if x.strip().isdigit()
+                ]
+            else:
+                result["duplicate_facts"] = []
+
+    if "contradiction detection" in text.lower():
+        found_any = True
+        # Look for "contradicts" or index mentions
+        contra_idx_match = re.search(
+            r"contradicts?\s+(?:the\s+)?(?:first\s+)?fact\s*\(?\s*idx\s*(\d+)",
+            text,
+            re.IGNORECASE,
+        )
+        if contra_idx_match:
+            result["contradicted_facts"] = [int(contra_idx_match.group(1))]
+        # Also try: "Contradicted facts: [0]"
+        contra_idx_match2 = re.search(
+            r"contradicted\s*facts[:\s]+\[([^\]]*)\]", text, re.IGNORECASE
+        )
+        if contra_idx_match2:
+            vals = contra_idx_match2.group(1).strip()
+            if vals:
+                result["contradicted_facts"] = [
+                    int(x.strip()) for x in vals.split(",") if x.strip().isdigit()
+                ]
 
     return result if found_any else None
 
@@ -483,6 +555,11 @@ class GraphitiWrapper:
                                                 "duplicate_facts",
                                                 "contradicted_facts",
                                                 "fact_type",
+                                                "duplicate facts",
+                                                "contradicted facts",
+                                                "fact type",
+                                                "duplicate detection",
+                                                "contradiction detection",
                                             ]
                                             if any(
                                                 kw in original_content.lower()
@@ -825,6 +902,11 @@ class GraphitiWrapper:
                                                     "duplicate_facts",
                                                     "contradicted_facts",
                                                     "fact_type",
+                                                    "duplicate facts",
+                                                    "contradicted facts",
+                                                    "fact type",
+                                                    "duplicate detection",
+                                                    "contradiction detection",
                                                 ]
                                                 if any(
                                                     kw in original_content.lower()
