@@ -195,23 +195,36 @@ json.loads = _patched_json_loads
 class RemoteRerankerClient(CrossEncoderClient):
     """
     Custom CrossEncoder client for remote reranker servers (e.g. llama.cpp, Jina).
-    Sends POST requests to /v1/rerank compatible endpoints.
+    Supports both llama.cpp (/rerank) and Jina/Cohere (/v1/rerank) endpoints.
     """
 
     def __init__(self, base_url: str, api_key: str, model: str):
         self.base_url = base_url.rstrip("/")
-        if self.base_url.endswith("/v1"):
-            self.base_url = self.base_url[:-3]
+        # Determine the correct endpoint based on base_url format
+        # llama.cpp uses /rerank directly
+        # Jina/Cohere use /v1/rerank
+        if self.base_url.endswith("/rerank"):
+            # llama.cpp style: base_url already contains the endpoint
+            self.rerank_url = self.base_url
+        elif self.base_url.endswith("/v1"):
+            # /v1 suffix provided, append /rerank
+            self.rerank_url = f"{self.base_url}/rerank"
+        else:
+            # Default: assume Jina/Cohere style, add /v1/rerank
+            self.rerank_url = f"{self.base_url}/v1/rerank"
 
         self.api_key = api_key
         self.model = model
         self.client = httpx.AsyncClient(timeout=30.0)
+        logger.info(
+            f"RemoteRerankerClient initialized with endpoint: {self.rerank_url}"
+        )
 
     async def rank(self, query: str, passages: list[str]) -> list[tuple[str, float]]:
         if not passages:
             return []
 
-        url = f"{self.base_url}/v1/rerank"
+        url = self.rerank_url
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
