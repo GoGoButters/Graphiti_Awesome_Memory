@@ -42,12 +42,13 @@ def _parse_edge_duplicate_response(text: str) -> Optional[dict]:
     - []  (No duplicates found)
       Contradicted Facts: []
     - {"duplicate_facts": [], "fact_type": DEFAULT, "contradicted_facts": []}  (unquoted DEFAULT)
+    - Duplicate Facts: [] / Contradicted Facts: [0] (space in names)
     """
     result = {"duplicate_facts": [], "fact_type": "DEFAULT", "contradicted_facts": []}
 
     found_any = False
 
-    # Pattern 1: YAML-like key: value format
+    # Pattern 1a: YAML-like key: value format (underscore version)
     # Match duplicate_facts: [] or duplicate_facts: [1, 2]
     dup_match = re.search(r"duplicate_facts[:\s]+\[([^\]]*)\]", text, re.IGNORECASE)
     if dup_match:
@@ -58,13 +59,35 @@ def _parse_edge_duplicate_response(text: str) -> Optional[dict]:
                 int(x.strip()) for x in vals.split(",") if x.strip().isdigit()
             ]
 
+    # Pattern 1b: Space version - "Duplicate Facts: []"
+    if not dup_match:
+        dup_match2 = re.search(
+            r"duplicate\s+facts[:\s]+\[([^\]]*)\]", text, re.IGNORECASE
+        )
+        if dup_match2:
+            found_any = True
+            vals = dup_match2.group(1).strip()
+            if vals:
+                result["duplicate_facts"] = [
+                    int(x.strip()) for x in vals.split(",") if x.strip().isdigit()
+                ]
+
     # Match fact_type: DEFAULT or fact_type: "DEFAULT" or "fact_type": DEFAULT
     type_match = re.search(r'fact_type[:\s]+["\']?(\w+)["\']?', text, re.IGNORECASE)
     if type_match:
         found_any = True
         result["fact_type"] = type_match.group(1).upper()
 
-    # Match contradicted_facts: [] or contradicted_facts: [6, 7]
+    # Pattern 1b for type: "Fact Type: DEFAULT"
+    if not type_match:
+        type_match2 = re.search(
+            r'fact\s+type[:\s]+["\']?(\w+)["\']?', text, re.IGNORECASE
+        )
+        if type_match2:
+            found_any = True
+            result["fact_type"] = type_match2.group(1).upper()
+
+    # Pattern 2a: Match contradicted_facts: [] or contradicted_facts: [6, 7] (underscore)
     contra_match = re.search(
         r"contradicted_facts[:\s]+\[([^\]]*)\]", text, re.IGNORECASE
     )
@@ -76,7 +99,20 @@ def _parse_edge_duplicate_response(text: str) -> Optional[dict]:
                 int(x.strip()) for x in vals.split(",") if x.strip().isdigit()
             ]
 
-    # Pattern 2: Check for "No duplicates found" or similar text patterns
+    # Pattern 2b: Space version - "Contradicted Facts: [0]"
+    if not contra_match:
+        contra_match2 = re.search(
+            r"contradicted\s+facts[:\s]+\[([^\]]*)\]", text, re.IGNORECASE
+        )
+        if contra_match2:
+            found_any = True
+            vals = contra_match2.group(1).strip()
+            if vals:
+                result["contradicted_facts"] = [
+                    int(x.strip()) for x in vals.split(",") if x.strip().isdigit()
+                ]
+
+    # Pattern 3: Check for "No duplicates found" or similar text patterns
     if "no duplicates" in text.lower() or "no duplicate" in text.lower():
         found_any = True
         result["duplicate_facts"] = []
@@ -84,6 +120,42 @@ def _parse_edge_duplicate_response(text: str) -> Optional[dict]:
     if "no contradictions" in text.lower() or "no contradiction" in text.lower():
         found_any = True
         result["contradicted_facts"] = []
+
+    # Pattern 4: Handle structured response sections like "1. DUPLICATE DETECTION:", etc.
+    # This handles free-form responses that describe results in sections
+    if "duplicate detection" in text.lower():
+        found_any = True
+        # Look for idx values or empty list mentions
+        idx_match = re.search(r"idx\s*values?[:\s]+\[([^\]]*)\]", text, re.IGNORECASE)
+        if idx_match:
+            vals = idx_match.group(1).strip()
+            if vals:
+                result["duplicate_facts"] = [
+                    int(x.strip()) for x in vals.split(",") if x.strip().isdigit()
+                ]
+            else:
+                result["duplicate_facts"] = []
+
+    if "contradiction detection" in text.lower():
+        found_any = True
+        # Look for "contradicts" or index mentions
+        contra_idx_match = re.search(
+            r"contradicts?\s+(?:the\s+)?(?:first\s+)?fact\s*\(?\s*idx\s*(\d+)",
+            text,
+            re.IGNORECASE,
+        )
+        if contra_idx_match:
+            result["contradicted_facts"] = [int(contra_idx_match.group(1))]
+        # Also try: "Contradicted facts: [0]"
+        contra_idx_match2 = re.search(
+            r"contradicted\s*facts[:\s]+\[([^\]]*)\]", text, re.IGNORECASE
+        )
+        if contra_idx_match2:
+            vals = contra_idx_match2.group(1).strip()
+            if vals:
+                result["contradicted_facts"] = [
+                    int(x.strip()) for x in vals.split(",") if x.strip().isdigit()
+                ]
 
     return result if found_any else None
 
@@ -224,42 +296,106 @@ class RemoteRerankerClient(CrossEncoderClient):
         if not passages:
             return []
 
+        # Configuration for avoiding 400 Bad Request due to context length
+        MAX_DOC_LENGTH = 500  # Max characters per document
+        MAX_BATCH_SIZE = 50  # Max documents per request
+
+        # Truncate long documents to avoid exceeding model context
+        truncated_passages = [
+            p[:MAX_DOC_LENGTH] if len(p) > MAX_DOC_LENGTH else p for p in passages
+        ]
+
         url = self.rerank_url
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
-        payload = {
-            "model": self.model,
-            "query": query,
-            "documents": passages,
-            "top_n": len(passages),  # Return all, sorted
-        }
 
         try:
-            logger.info(f"Reranking {len(passages)} passages via {url}")
-            response = await self.client.post(url, headers=headers, json=payload)
-            response.raise_for_status()
+            # Process in batches if too many documents
+            if len(truncated_passages) <= MAX_BATCH_SIZE:
+                # Single batch - simple case
+                payload = {
+                    "model": self.model,
+                    "query": query,
+                    "documents": truncated_passages,
+                    "top_n": len(truncated_passages),
+                }
+                logger.info(f"Reranking {len(truncated_passages)} passages via {url}")
+                response = await self.client.post(url, headers=headers, json=payload)
+                response.raise_for_status()
 
-            data = response.json()
-            # Expecting Jina/Cohere format: {"results": [{"index": i, "relevance_score": s}, ...]}
-            results = data.get("results", [])
+                data = response.json()
+                results = data.get("results", [])
 
-            # Map results back to passages
-            ranked = []
-            for res in results:
-                idx = res.get("index")
-                score = res.get("relevance_score")
-                if idx is not None and 0 <= idx < len(passages):
-                    ranked.append((passages[idx], float(score)))
+                # Map results back to original passages (not truncated)
+                ranked = []
+                for res in results:
+                    idx = res.get("index")
+                    score = res.get("relevance_score")
+                    if idx is not None and 0 <= idx < len(passages):
+                        ranked.append((passages[idx], float(score)))
 
-            logger.info(
-                f"Rerank success, top score: {ranked[0][1] if ranked else 'none'}"
-            )
-            return ranked
+                logger.info(
+                    f"Rerank success, top score: {ranked[0][1] if ranked else 'none'}"
+                )
+                return ranked
+            else:
+                # Multiple batches - aggregate results
+                logger.info(
+                    f"Reranking {len(truncated_passages)} passages in {(len(truncated_passages) + MAX_BATCH_SIZE - 1) // MAX_BATCH_SIZE} batches"
+                )
+                all_results = []
+
+                for batch_start in range(0, len(truncated_passages), MAX_BATCH_SIZE):
+                    batch_end = min(
+                        batch_start + MAX_BATCH_SIZE, len(truncated_passages)
+                    )
+                    batch = truncated_passages[batch_start:batch_end]
+
+                    payload = {
+                        "model": self.model,
+                        "query": query,
+                        "documents": batch,
+                        "top_n": len(batch),
+                    }
+
+                    logger.info(
+                        f"Reranking batch {batch_start // MAX_BATCH_SIZE + 1}: {len(batch)} passages"
+                    )
+                    response = await self.client.post(
+                        url, headers=headers, json=payload
+                    )
+                    response.raise_for_status()
+
+                    data = response.json()
+                    batch_results = data.get("results", [])
+
+                    # Adjust indices to global position and use original passages
+                    for res in batch_results:
+                        local_idx = res.get("index")
+                        score = res.get("relevance_score")
+                        if local_idx is not None:
+                            global_idx = batch_start + local_idx
+                            if 0 <= global_idx < len(passages):
+                                all_results.append((passages[global_idx], float(score)))
+
+                # Sort all results by score descending
+                all_results.sort(key=lambda x: x[1], reverse=True)
+
+                logger.info(
+                    f"Rerank success (batched), top score: {all_results[0][1] if all_results else 'none'}"
+                )
+                return all_results
 
         except Exception as e:
             logger.error(f"Remote reranking failed: {e}")
+            # Log document stats for debugging
+            doc_lengths = [len(p) for p in passages]
+            logger.error(
+                f"Rerank debug: query_len={len(query)}, num_docs={len(passages)}, "
+                f"doc_lengths: min={min(doc_lengths)}, max={max(doc_lengths)}, avg={sum(doc_lengths) // len(doc_lengths)}"
+            )
             raise e
 
 
@@ -483,6 +619,11 @@ class GraphitiWrapper:
                                                 "duplicate_facts",
                                                 "contradicted_facts",
                                                 "fact_type",
+                                                "duplicate facts",
+                                                "contradicted facts",
+                                                "fact type",
+                                                "duplicate detection",
+                                                "contradiction detection",
                                             ]
                                             if any(
                                                 kw in original_content.lower()
@@ -825,6 +966,11 @@ class GraphitiWrapper:
                                                     "duplicate_facts",
                                                     "contradicted_facts",
                                                     "fact_type",
+                                                    "duplicate facts",
+                                                    "contradicted facts",
+                                                    "fact type",
+                                                    "duplicate detection",
+                                                    "contradiction detection",
                                                 ]
                                                 if any(
                                                     kw in original_content.lower()
