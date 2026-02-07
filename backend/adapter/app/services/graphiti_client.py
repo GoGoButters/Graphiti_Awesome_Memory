@@ -203,7 +203,27 @@ def _patched_json_loads(s, *args, **kwargs):
             else:
                 s = s.replace("```json", "").replace("```", "").strip()
 
-        # 2. Try to extract JSON structure
+        # 2. EARLY CHECK: If this looks like EdgeDuplicate response, parse it FIRST
+        # This must happen BEFORE JSON extraction because YAML-like responses start with []
+        edge_dup_keywords = [
+            "duplicate_facts",
+            "contradicted_facts",
+            "fact_type",
+            "duplicate facts",
+            "contradicted facts",
+            "fact type",
+            "duplicate detection",
+            "contradiction detection",
+        ]
+        if any(kw in s.lower() for kw in edge_dup_keywords):
+            edge_dup_result = _parse_edge_duplicate_response(s)
+            if edge_dup_result:
+                logger.info(
+                    "json.loads patch: converted EdgeDuplicate YAML-like response to JSON"
+                )
+                return edge_dup_result
+
+        # 3. Try to extract JSON structure
         first_brace = s.find("{")
         first_bracket = s.find("[")
 
@@ -223,7 +243,7 @@ def _patched_json_loads(s, *args, **kwargs):
             if end_idx != -1 and end_idx > start_idx:
                 extracted_json = s[start_idx : end_idx + 1]
 
-        # 3. Try to parse extracted JSON
+        # 4. Try to parse extracted JSON
         if extracted_json:
             try:
                 # First try direct parse
@@ -233,27 +253,17 @@ def _patched_json_loads(s, *args, **kwargs):
                 try:
                     fixed_json = _fix_unquoted_json_values(extracted_json)
                     result = _original_json_loads(fixed_json, *args, **kwargs)
-                    logger.info(f"json.loads patch: fixed unquoted values in JSON")
+                    logger.info("json.loads patch: fixed unquoted values in JSON")
                     return result
                 except json.JSONDecodeError:
                     pass
-
-        # 4. Check if this looks like EdgeDuplicate response (YAML-like format)
-        edge_dup_keywords = ["duplicate_facts", "contradicted_facts", "fact_type"]
-        if any(kw in s.lower() for kw in edge_dup_keywords):
-            edge_dup_result = _parse_edge_duplicate_response(s)
-            if edge_dup_result:
-                logger.info(
-                    f"json.loads patch: converted EdgeDuplicate YAML-like response to JSON"
-                )
-                return edge_dup_result
 
         # 5. If we extracted JSON but couldn't parse it, try the original extraction logic
         if extracted_json:
             s = extracted_json
 
         if s != original_s:
-            logger.info(f"json.loads patch: cleaned input")
+            logger.info("json.loads patch: cleaned input")
 
     return _original_json_loads(s, *args, **kwargs)
 
