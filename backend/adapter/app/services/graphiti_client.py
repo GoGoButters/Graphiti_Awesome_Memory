@@ -160,6 +160,23 @@ def _parse_edge_duplicate_response(text: str) -> Optional[dict]:
     return result if found_any else None
 
 
+def _fix_array_as_object(s: str) -> str:
+    """
+    Fix malformed JSON where array brackets are used instead of object braces.
+    E.g.: ["duplicate_facts": [], ...] -> {"duplicate_facts": [], ...}
+
+    This happens when LLM returns EdgeDuplicate in invalid format.
+    """
+    s = s.strip()
+    # Check if it looks like an array with key:value pairs
+    if s.startswith("[") and s.endswith("]"):
+        # Check if it contains key: value pattern (indicates object, not array)
+        if re.search(r'"\w+":\s*[\[\{"\d]', s):
+            # Replace outer brackets with braces
+            return "{" + s[1:-1] + "}"
+    return s
+
+
 def _fix_unquoted_json_values(s: str) -> str:
     """
     Fix JSON with unquoted string values like DEFAULT, true, false, null.
@@ -596,11 +613,13 @@ class GraphitiWrapper:
                                         "fact type",
                                         "duplicate detection",
                                         "contradiction detection",
+                                        "duplicated_facts",
                                     ]
                                     if any(
                                         kw in content.lower()
                                         for kw in edge_dup_keywords_early
                                     ):
+                                        # First, try to parse as YAML-like format
                                         edge_dup_result = (
                                             _parse_edge_duplicate_response(content)
                                         )
@@ -621,6 +640,38 @@ class GraphitiWrapper:
                                                 request=request,
                                                 extensions=response.extensions,
                                             )
+
+                                        # If not YAML-like, try to fix malformed JSON
+                                        # Handle: ["key": value] -> {"key": value}
+                                        fixed_content = _fix_array_as_object(content)
+                                        # Handle: {"fact_type": DEFAULT} -> {"fact_type": "DEFAULT"}
+                                        fixed_content = _fix_unquoted_json_values(
+                                            fixed_content
+                                        )
+
+                                        if fixed_content != content:
+                                            try:
+                                                # Verify it's valid JSON now
+                                                json.loads(fixed_content)
+                                                logger.info(
+                                                    "Fixing JSON: Early EdgeDuplicate detection (standard path) - fixed malformed JSON"
+                                                )
+                                                data["choices"][0]["message"][
+                                                    "content"
+                                                ] = fixed_content
+                                                new_body = json.dumps(data).encode(
+                                                    "utf-8"
+                                                )
+                                                return httpx.Response(
+                                                    status_code=response.status_code,
+                                                    headers=response.headers,
+                                                    content=new_body,
+                                                    request=request,
+                                                    extensions=response.extensions,
+                                                )
+                                            except json.JSONDecodeError:
+                                                # Still not valid, continue with normal processing
+                                                pass
 
                                     # 2. Extract JSON structure (find first { or [ and last } or ])
                                     start_brace = content.find("{")
@@ -990,11 +1041,13 @@ class GraphitiWrapper:
                                             "fact type",
                                             "duplicate detection",
                                             "contradiction detection",
+                                            "duplicated_facts",
                                         ]
                                         if any(
                                             kw in content.lower()
                                             for kw in edge_dup_keywords_early
                                         ):
+                                            # First, try to parse as YAML-like format
                                             edge_dup_result = (
                                                 _parse_edge_duplicate_response(content)
                                             )
@@ -1017,6 +1070,40 @@ class GraphitiWrapper:
                                                     request=request,
                                                     extensions=response.extensions,
                                                 )
+
+                                            # If not YAML-like, try to fix malformed JSON
+                                            # Handle: ["key": value] -> {"key": value}
+                                            fixed_content = _fix_array_as_object(
+                                                content
+                                            )
+                                            # Handle: {"fact_type": DEFAULT} -> {"fact_type": "DEFAULT"}
+                                            fixed_content = _fix_unquoted_json_values(
+                                                fixed_content
+                                            )
+
+                                            if fixed_content != content:
+                                                try:
+                                                    # Verify it's valid JSON now
+                                                    json.loads(fixed_content)
+                                                    logger.info(
+                                                        "Fixing JSON: Early EdgeDuplicate detection (non-standard path) - fixed malformed JSON"
+                                                    )
+                                                    data["output"][output_index][
+                                                        "content"
+                                                    ][0]["text"] = fixed_content
+                                                    new_body = json.dumps(data).encode(
+                                                        "utf-8"
+                                                    )
+                                                    return httpx.Response(
+                                                        status_code=response.status_code,
+                                                        headers=response.headers,
+                                                        content=new_body,
+                                                        request=request,
+                                                        extensions=response.extensions,
+                                                    )
+                                                except json.JSONDecodeError:
+                                                    # Still not valid, continue with normal processing
+                                                    pass
 
                                         # Extract JSON
                                         start_brace = content.find("{")
