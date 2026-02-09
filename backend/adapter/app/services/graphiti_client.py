@@ -584,6 +584,44 @@ class GraphitiWrapper:
                                                 .strip()
                                             )
 
+                                    # EARLY CHECK: If this looks like EdgeDuplicate response, parse it FIRST
+                                    # This must happen BEFORE JSON extraction because YAML-like responses
+                                    # contain [] which would be extracted incorrectly
+                                    edge_dup_keywords_early = [
+                                        "duplicate_facts",
+                                        "contradicted_facts",
+                                        "fact_type",
+                                        "duplicate facts",
+                                        "contradicted facts",
+                                        "fact type",
+                                        "duplicate detection",
+                                        "contradiction detection",
+                                    ]
+                                    if any(
+                                        kw in content.lower()
+                                        for kw in edge_dup_keywords_early
+                                    ):
+                                        edge_dup_result = (
+                                            _parse_edge_duplicate_response(content)
+                                        )
+                                        if edge_dup_result:
+                                            logger.info(
+                                                "Fixing JSON: Early EdgeDuplicate detection (standard path) - converting YAML to JSON"
+                                            )
+                                            content = json.dumps(edge_dup_result)
+                                            # Skip JSON extraction, go directly to response modification
+                                            data["choices"][0]["message"]["content"] = (
+                                                content
+                                            )
+                                            new_body = json.dumps(data).encode("utf-8")
+                                            return httpx.Response(
+                                                status_code=response.status_code,
+                                                headers=response.headers,
+                                                content=new_body,
+                                                request=request,
+                                                extensions=response.extensions,
+                                            )
+
                                     # 2. Extract JSON structure (find first { or [ and last } or ])
                                     start_brace = content.find("{")
                                     start_bracket = content.find("[")
@@ -938,6 +976,46 @@ class GraphitiWrapper:
                                                     content.replace("```json", "")
                                                     .replace("```", "")
                                                     .strip()
+                                                )
+
+                                        # EARLY CHECK: If this looks like EdgeDuplicate response, parse it FIRST
+                                        # This must happen BEFORE JSON extraction because YAML-like responses
+                                        # contain [] which would be extracted incorrectly
+                                        edge_dup_keywords_early = [
+                                            "duplicate_facts",
+                                            "contradicted_facts",
+                                            "fact_type",
+                                            "duplicate facts",
+                                            "contradicted facts",
+                                            "fact type",
+                                            "duplicate detection",
+                                            "contradiction detection",
+                                        ]
+                                        if any(
+                                            kw in content.lower()
+                                            for kw in edge_dup_keywords_early
+                                        ):
+                                            edge_dup_result = (
+                                                _parse_edge_duplicate_response(content)
+                                            )
+                                            if edge_dup_result:
+                                                logger.info(
+                                                    "Fixing JSON: Early EdgeDuplicate detection (non-standard path) - converting YAML to JSON"
+                                                )
+                                                content = json.dumps(edge_dup_result)
+                                                # Skip JSON extraction, go directly to response modification
+                                                data["output"][output_index]["content"][
+                                                    0
+                                                ]["text"] = content
+                                                new_body = json.dumps(data).encode(
+                                                    "utf-8"
+                                                )
+                                                return httpx.Response(
+                                                    status_code=response.status_code,
+                                                    headers=response.headers,
+                                                    content=new_body,
+                                                    request=request,
+                                                    extensions=response.extensions,
                                                 )
 
                                         # Extract JSON
