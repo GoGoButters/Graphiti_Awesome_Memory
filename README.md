@@ -13,6 +13,7 @@ A production-ready dev setup for a Graphiti memory platform, featuring a FastAPI
 - **Neo4j**: Graph database backend.
 - **Adapter**: FastAPI service providing `append`, `query`, and `summary` endpoints.
 - **Worker**: Redis + RQ background worker for async tasks.
+- **MCP Server**: OpenClaw/Claude integration via stdio transport for long-term memory.
 - **Frontend**: React Admin UI for visualization and management.
 - **Redis**: Message broker and cache.
 
@@ -23,13 +24,15 @@ A production-ready dev setup for a Graphiti memory platform, featuring a FastAPI
 - **Admin Dashboard**: View user statistics, manage memories, and monitor system health.
 - **Background Processing**: Async task queue for heavy operations.
 - **Secure**: API Key authentication for API, JWT for Admin UI.
+- **OpenClaw MCP Ready**: 6 MCP tools for AI agents — memory append, query, recall context injection, episodes, stats, file cleanup.
+- **Memory Summarization**: Automatic summary generation with LLM (falls back to structured extraction if LLM unavailable).
 
 ## Quick Setup
 
 ### 1. Clone & Configure
 
 ```bash
-git clone -b dev https://github.com/GoGoButters/Graphiti_Awesome_Memory.git
+git clone https://github.com/GoGoButters/Graphiti_Awesome_Memory.git
 cd Graphiti_Awesome_Memory
 
 # Configure secrets
@@ -52,6 +55,16 @@ That's it! Services will be available at:
 - **Admin UI**: <http://localhost:3000>
 - **Neo4j Browser**: <http://localhost:7474>
 
+Ports are configurable via `.env`:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ADAPTER_PORT` | 8000 | Adapter API port |
+| `FRONTEND_PORT` | 3000 | Admin UI port |
+| `NEO4J_HTTP_PORT` | 7474 | Neo4j Browser port |
+| `NEO4J_BOLT_PORT` | 7687 | Neo4j Bolt port |
+| `REDIS_PORT` | 6379 | Redis port |
+
 ## API Usage
 
 All API endpoints use `X-API-KEY` header for authentication (default: `adapter-secret-api-key`).
@@ -71,8 +84,9 @@ curl -X POST http://<SERVER_IP>:8000/memory/append \
 
 ```json
 {
-  "episode_id": "user123_2025-12-01T12:00:00.000000+00:00",
-  "status": "success"
+  "ok": true,
+  "id": "f3e92aaa-a6a9-4218-b8d6-6be7253925b7",
+  "created_ts": "2025-12-01T12:00:00.000000Z"
 }
 ```
 
@@ -111,7 +125,7 @@ curl -X POST http://<SERVER_IP>:8000/memory/query \
 
 ```json
 {
-  "results": [
+  "hits": [
     {
       "fact": "Alice likes robotics",
       "score": 0.95,
@@ -172,6 +186,23 @@ curl -X POST http://<SERVER_IP>:8000/memory/summary \
   -H "Content-Type: application/json" \
   -H "X-API-KEY: adapter-secret-api-key" \
   -d '{"user_id":"user123"}'
+```
+
+**Response (LLM available):**
+```json
+{"summary": "Alice is a robotics engineer living in Berlin..."}
+```
+
+**Response (fallback — LLM unavailable):**
+```
+Memory Summary for alice
+
+Total episodes: 3
+Sources: chat, n8n
+
+Recent memories:
+- My name is Alice. I like robotics....
+- I live in Berlin and work as an engineer....
 ```
 
 ### Delete File (Bulk Cleanup)
@@ -242,6 +273,49 @@ Admin endpoints require JWT token obtained by logging into the Admin UI at `http
   - Useful after Graphiti updates or to fix missing graph data
   - May create duplicate episodes (can be cleaned later if needed)
 
+## OpenClaw MCP Integration
+
+Graphiti ships with a ready-to-use MCP server for OpenClaw and Claude Desktop.
+
+### Configuration
+
+Add to your OpenClaw MCP config:
+
+```json
+{
+  "mcpServers": {
+    "graphiti-memory": {
+      "command": "python3",
+      "args": ["mcp_server/graphiti_mcp.py"],
+      "env": {
+        "GRAPHITI_API_BASE_URL": "http://localhost:8000",
+        "GRAPHITI_API_KEY": "adapter-secret-api-key"
+      }
+    }
+  }
+}
+```
+
+### MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `graphiti_append_memory` | Store a fact in the user's knowledge graph |
+| `graphiti_query_memory` | Semantic search across user memories |
+| `graphiti_recall_context` | Retrieve relevant memories formatted as conversation context |
+| `graphiti_get_episodes` | View episode history for a user |
+| `graphiti_get_user_stats` | Get memory statistics for a user |
+| `graphiti_delete_file` | Delete all facts from a source file |
+
+### How It Works
+
+1. **Before responding**: OpenClaw calls `graphiti_recall_context` with the user's query
+2. **Memory injection**: Relevant facts are injected into the agent's context
+3. **After responding**: OpenClaw saves important new facts via `graphiti_append_memory`
+4. **Across sessions**: Facts persist in Neo4j and are retrieved via semantic search
+
+See `mcp_server/system_prompt.md` for the full OpenClaw system prompt.
+
 ## Performance Optimization
 
 ### Dual-Model Strategy
@@ -295,6 +369,7 @@ environment:
 - `backend/adapter`: FastAPI application.
 - `worker`: Background worker.
 - `frontend`: React Admin UI.
+- `mcp_server`: OpenClaw/Claude MCP integration.
 - `infra`: Infrastructure config (Nginx).
 
 ### Running Tests
