@@ -4,13 +4,13 @@ envs:
 	bash scripts/generate_envs.sh
 
 up: envs
-	docker-compose up -d
+	docker compose up -d
 
 down:
-	docker-compose down
+	docker compose down
 
 build:
-	docker-compose build
+	docker compose build
 
 test:
-	docker-compose run --rm adapter pytest
+	docker compose run --rm adapter pytest

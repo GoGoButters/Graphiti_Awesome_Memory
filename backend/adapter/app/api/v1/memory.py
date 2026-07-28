@@ -8,9 +8,10 @@ from app.models.schemas import (
 from app.core.auth import get_api_key
 from app.services.graphiti_client import graphiti_client
 from app.services.worker_tasks import process_episode
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 import logging
+import os
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -24,7 +25,7 @@ async def append_memory(
     try:
         # Generate ID and TS
         episode_id = str(uuid.uuid4())
-        created_ts = datetime.utcnow()
+        created_ts = datetime.now(timezone.utc)
         
         # Add to Graphiti (Synchronous part - e.g. raw storage)
         # For now we just acknowledge receipt and offload everything or do a quick write
@@ -121,8 +122,78 @@ async def summarize_memory(
     request: MemorySummaryRequest,
     api_key: str = Depends(get_api_key)
 ):
-    # Placeholder for summary
-    return MemorySummaryResponse(summary="Not implemented yet")
+    """
+    Generate a summary of a user's memory episodes.
+
+    Attempts to use LLM for intelligent summarization.
+    Falls back to structured text extraction if LLM is unavailable.
+    """
+    try:
+        # 1. Get user episodes
+        episodes = await graphiti_client.get_user_episodes(request.user_id, limit=request.limit)
+
+        if not episodes:
+            return MemorySummaryResponse(summary="No episodes found for this user.")
+
+        # 2. Extract content
+        contents = []
+        for ep in episodes:
+            content = ep.get("content", "")
+            source = ep.get("source", "unknown")
+            created = ep.get("created_at", "unknown")
+            if content:
+                contents.append(f"[{created}] ({source}): {content}")
+
+        combined_text = "\n".join(contents)
+
+        # 3. Try LLM summarization
+        try:
+            from openai import AsyncOpenAI
+
+            llm_client = AsyncOpenAI(
+                base_url=os.getenv("LLM_BASE_URL", "https://api.openai.com/v1"),
+                api_key=os.getenv("LLM_API_KEY", ""),
+            )
+
+            response = await llm_client.chat.completions.create(
+                model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
+                messages=[
+                    {"role": "system", "content": "You are a memory summarizer. Create a concise summary of the user's memory episodes. Focus on key facts, preferences, and important information."},
+                    {"role": "user", "content": f"Summarize these memory episodes for user {request.user_id}:\n\n{combined_text}"}
+                ],
+                max_tokens=500,
+                temperature=0.3,
+            )
+            summary = response.choices[0].message.content
+            return MemorySummaryResponse(summary=summary)
+
+        except Exception as llm_error:
+            logger.warning(f"LLM summarization failed, using fallback: {llm_error}")
+
+            # 4. Fallback: structured summary
+            total = len(episodes)
+            sources = set(ep.get("source", "unknown") for ep in episodes)
+            # Extract first 200 chars from each episode
+            excerpts = []
+            for ep in episodes[:5]:
+                content = ep.get("content", "")
+                excerpts.append(f"- {content[:200]}...")
+
+            fallback = f"""Memory Summary for {request.user_id}
+
+Total episodes: {total}
+Sources: {', '.join(sources)}
+
+Recent memories:
+{chr(10).join(excerpts)}
+
+(LLM summarization unavailable — showing structured extraction)"""
+
+            return MemorySummaryResponse(summary=fallback)
+
+    except Exception as e:
+        logger.error(f"Error in summarize_memory: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/users/{user_id}/episodes")
 async def get_user_episodes(

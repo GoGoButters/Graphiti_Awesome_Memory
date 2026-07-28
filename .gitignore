@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.env
+.env.adapter
+.env.worker
+frontend/node_modules/
+frontend/dist/
+*.tar.gz
+.pytest_cache/
+mcp_server/__pycache__/
+backup_repair/
+create_fixed_backup.py
+repair_encoding.py
+edges.json
+entities.json

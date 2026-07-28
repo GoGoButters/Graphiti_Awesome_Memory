@@ -1,6 +1,6 @@
 import os
 import redis
-from rq import Worker, Queue, Connection
+from rq import Worker, Queue
 import logging
 
 # Setup logging
@@ -16,6 +16,5 @@ def get_redis_connection():
 if __name__ == '__main__':
     logger.info("Starting worker...")
     conn = get_redis_connection()
-    with Connection(conn):
-        worker = Worker(map(Queue, listen))
-        worker.work()
+    worker = Worker([Queue(name, connection=conn) for name in listen], connection=conn)
+    worker.work()

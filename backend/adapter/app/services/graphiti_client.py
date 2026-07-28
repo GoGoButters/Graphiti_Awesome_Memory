@@ -288,9 +288,6 @@ def _patched_json_loads(s, *args, **kwargs):
 json.loads = _patched_json_loads
 
 
-json.loads = _patched_json_loads
-
-
 class RemoteRerankerClient(CrossEncoderClient):
     """
     Custom CrossEncoder client for remote reranker servers (e.g. llama.cpp, Jina).
