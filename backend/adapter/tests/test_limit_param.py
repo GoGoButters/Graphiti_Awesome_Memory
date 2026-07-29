@@ -1,6 +1,6 @@
 
 import pytest
-from httpx import AsyncClient
+from httpx import AsyncClient, ASGITransport
 from app.main import app
 from unittest.mock import AsyncMock
 
@@ -15,7 +15,7 @@ async def test_get_episodes_limit_param(mock_graphiti, override_dependencies):
         {"uuid": "2", "content": "test2", "created_at": "2024-01-02", "status": "processed"}
     ])
     
-    async with AsyncClient(app=app, base_url="http://test") as ac:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         response = await ac.get(
             f"/memory/users/{user_id}/episodes",
             params={"limit": 5},

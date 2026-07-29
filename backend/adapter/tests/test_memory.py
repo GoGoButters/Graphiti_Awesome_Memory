@@ -1,11 +1,11 @@
 import pytest
-from httpx import AsyncClient
+from httpx import AsyncClient, ASGITransport
 from app.main import app
 from app.core.config import settings
 
 @pytest.mark.asyncio
 async def test_append_memory(mock_graphiti, override_dependencies):
-    async with AsyncClient(app=app, base_url="http://test") as ac:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         response = await ac.post(
             "/memory/append",
             json={
@@ -22,7 +22,7 @@ async def test_append_memory(mock_graphiti, override_dependencies):
 
 @pytest.mark.asyncio
 async def test_query_memory():
-    async with AsyncClient(app=app, base_url="http://test") as ac:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         response = await ac.post(
             "/memory/query",
             json={
