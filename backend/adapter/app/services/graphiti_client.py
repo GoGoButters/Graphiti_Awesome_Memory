@@ -25,6 +25,7 @@ from graphiti_core.nodes import EpisodeType
 from graphiti_core.search.search_config_recipes import (
     NODE_HYBRID_SEARCH_RRF,
     COMBINED_HYBRID_SEARCH_CROSS_ENCODER,
+    COMBINED_HYBRID_SEARCH_RRF,
 )
 from graphiti_core.cross_encoder.client import CrossEncoderClient
 
@@ -1896,7 +1897,7 @@ class GraphitiWrapper:
         Search for relevant memories (edges) in the knowledge graph.
 
         Uses COMBINED_HYBRID_SEARCH_CROSS_ENCODER when USE_RERANKER=true,
-        falls back to NODE_HYBRID_SEARCH_RRF otherwise or on reranker failure.
+        falls back to COMBINED_HYBRID_SEARCH_RRF otherwise or on reranker failure.
         Results are filtered by SEARCH_MIN_SCORE threshold.
         """
         try:
@@ -1913,11 +1914,15 @@ class GraphitiWrapper:
                 search_config = copy.deepcopy(COMBINED_HYBRID_SEARCH_CROSS_ENCODER)
                 search_config.limit = limit
                 try:
-                    search_results = await self.client.search_(
-                        query=query,
-                        center_node_uuid=center_node_uuid,
-                        config=search_config,
-                        group_ids=[user_id],
+                    import asyncio
+                    search_results = await asyncio.wait_for(
+                        self.client.search_(
+                            query=query,
+                            center_node_uuid=center_node_uuid,
+                            config=search_config,
+                            group_ids=[user_id],
+                        ),
+                        timeout=settings.RERANKER_TIMEOUT
                     )
                     results = search_results.edges
                     logger.info(
@@ -1925,13 +1930,13 @@ class GraphitiWrapper:
                     )
                 except Exception as e:
                     logger.warning(
-                        f"⚠️ Reranker search failed ({e}), falling back to RRF"
+                        f"⚠️ Reranker search failed ({type(e).__name__}: {e}), falling back to RRF"
                     )
                     use_reranker = False  # Fall through to RRF below
 
             if not use_reranker:
                 # RRF search (no cross-encoder, uses reciprocal rank fusion)
-                search_config = copy.deepcopy(NODE_HYBRID_SEARCH_RRF)
+                search_config = copy.deepcopy(COMBINED_HYBRID_SEARCH_RRF)
                 search_config.limit = limit
                 search_results = await self.client.search_(
                     query=query,
