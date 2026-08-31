@@ -3,6 +3,17 @@ Graphiti Client Wrapper - Real SDK Integration
 
 This module provides a wrapper around the graphiti-core Python SDK for
 building and querying temporal knowledge graphs.
+
+NOTE: JSON parsing workarounds (CleaningHTTPTransport, _patched_json_loads,
+_parse_edge_duplicate_response, _fix_unquoted_json_values, _fix_array_as_object)
+exist because graphiti-core's LLM calls don't use structured outputs
+(response_format=json_schema). The LLM sometimes returns markdown-wrapped JSON,
+YAML-like formats, or truncated responses. These workarounds intercept and fix
+responses at the HTTP transport layer.
+
+To remove these workarounds, graphiti-core itself would need to switch to
+structured outputs in its prompt library. As of graphiti-core 0.29.x,
+this is not supported upstream.
 """
 
 import logging
@@ -1722,11 +1733,14 @@ class GraphitiWrapper:
             final_source = f"{source_description} (file: {file_name})"
 
         logger.info(
-            f"Adding episode for user {user_id} (len: {len(text)}) (file: {file_name})"
+            f"[EXTRACT_START] user={user_id}, text_len={len(text)}, file={file_name}"
         )
 
         try:
-            # 2. Add to Graphiti
+            # 2. Prepare custom extraction instructions (Task 1)
+            custom_instructions = settings.CUSTOM_EXTRACTION_INSTRUCTIONS or None
+
+            # 3. Add to Graphiti
             await self.client.add_episode(
                 name=episode_name,
                 episode_body=text,
@@ -1734,9 +1748,10 @@ class GraphitiWrapper:
                 source_description=final_source,
                 reference_time=datetime.now(timezone.utc),
                 group_id=user_id,  # Critical: isolate data by user
+                custom_extraction_instructions=custom_instructions,
             )
 
-            # 3. Tag with file_name if provided (Post-processing check)
+            # 4. Tag with file_name if provided (Post-processing check)
             if file_name:
                 driver = self.client.driver
                 tag_query = """
@@ -1751,9 +1766,23 @@ class GraphitiWrapper:
                     f"Tagged episode {episode_name} with file_name: {file_name}"
                 )
 
-            logger.info(f"Successfully added episode: {episode_name}")
+            # 5. Log extraction results (Task 8)
+            entities_count = await self._count_episode_entities(episode_name, user_id)
+            edges_count = await self._count_episode_edges(episode_name, user_id)
+            logger.info(
+                f"[EXTRACT_DONE] user={user_id}, episode={episode_name}, "
+                f"entities={entities_count}, edges={edges_count}"
+            )
 
-            # 4. Cleanup PendingEpisode after successful processing
+            # 6. Fallback: create synthetic edge if nothing was extracted (Task 2)
+            if edges_count == 0 and entities_count == 0:
+                logger.warning(
+                    f"Episode {episode_name} produced 0 entities and 0 edges. "
+                    f"Creating fallback CONTENT_RAW edge."
+                )
+                await self._create_fallback_edge(user_id, episode_name, text)
+
+            # 7. Cleanup PendingEpisode after successful processing
             await self.delete_pending_episode(user_id, text)
 
             return episode_name
@@ -1763,6 +1792,99 @@ class GraphitiWrapper:
             # We DO NOT delete the pending episode on error, so retry logic can pick it up
             raise e
 
+    async def _count_episode_entities(self, episode_name: str, user_id: str) -> int:
+        """Count entities linked to an episode via MENTIONS relationship."""
+        try:
+            driver = self.client.driver
+            query = """
+            MATCH (e:Episodic {name: $name})-[:MENTIONS]->(n:Entity)
+            WHERE n.group_id = $user_id
+            RETURN count(DISTINCT n) as entity_count
+            """
+            result = await driver.execute_query(
+                query, name=episode_name, user_id=user_id, database_="neo4j"
+            )
+            return result.records[0]["entity_count"] if result.records else 0
+        except Exception as e:
+            logger.error(f"Error counting entities for {episode_name}: {e}")
+            return 0
+
+    async def _count_episode_edges(self, episode_name: str, user_id: str) -> int:
+        """Count RELATES_TO edges linked to an episode's entities."""
+        try:
+            driver = self.client.driver
+            query = """
+            MATCH (e:Episodic {name: $name})-[:MENTIONS]->(n:Entity)
+            WHERE n.group_id = $user_id
+            OPTIONAL MATCH (n)-[r:RELATES_TO]-(m:Entity)
+            RETURN count(DISTINCT r) as edge_count
+            """
+            result = await driver.execute_query(
+                query, name=episode_name, user_id=user_id, database_="neo4j"
+            )
+            return result.records[0]["edge_count"] if result.records else 0
+        except Exception as e:
+            logger.error(f"Error counting edges for {episode_name}: {e}")
+            return 0
+
+    async def _create_fallback_edge(
+        self, user_id: str, episode_name: str, text: str
+    ):
+        """
+        Create a synthetic CONTENT_RAW edge for episodes with no extracted facts.
+
+        This ensures that episodes which produced zero entities/edges during
+        LLM extraction are still discoverable via fulltext/semantic search.
+        The raw episode text is stored as the edge's 'fact' field.
+        """
+        try:
+            driver = self.client.driver
+            fact_text = text[:2000]  # Cap length for storage
+            edge_uuid = str(uuid.uuid4())
+            node_uuid = str(uuid.uuid4())
+
+            query = """
+            MATCH (e:Episodic {name: $episode_name})
+            MERGE (raw:Entity {name: $raw_name, group_id: $user_id})
+            ON CREATE SET raw.uuid = $node_uuid,
+                          raw.created_at = datetime(),
+                          raw.summary = 'Container for raw unextracted episode content'
+            MERGE (user_node:Entity {name: $user_name, group_id: $user_id})
+            ON CREATE SET user_node.uuid = randomUUID(),
+                          user_node.created_at = datetime(),
+                          user_node.summary = 'User entity'
+            CREATE (user_node)-[r:RELATES_TO {
+                uuid: $edge_uuid,
+                fact: $fact_text,
+                name: 'CONTENT_RAW',
+                group_id: $user_id,
+                created_at: datetime(),
+                expired_at: datetime({year: 9999, month: 12, day: 31}),
+                valid_at: datetime(),
+                invalid_at: null,
+                episodes: [$episode_name]
+            }]->(raw)
+            MERGE (e)-[:MENTIONS]->(raw)
+            MERGE (e)-[:MENTIONS]->(user_node)
+            RETURN r.uuid as uuid
+            """
+            await driver.execute_query(
+                query,
+                episode_name=episode_name,
+                raw_name=f"RawContent_{user_id}",
+                user_id=user_id,
+                user_name=user_id,
+                node_uuid=node_uuid,
+                edge_uuid=edge_uuid,
+                fact_text=fact_text,
+                database_="neo4j",
+            )
+            logger.info(
+                f"Created fallback CONTENT_RAW edge {edge_uuid} for episode {episode_name}"
+            )
+        except Exception as e:
+            logger.error(f"Error creating fallback edge for {episode_name}: {e}")
+
     async def search(
         self,
         user_id: str,
@@ -1771,45 +1893,58 @@ class GraphitiWrapper:
         center_node_uuid: Optional[str] = None,
     ) -> List[MemoryHit]:
         """
-        Search for relevant memories (edges) in the knowledge graph
+        Search for relevant memories (edges) in the knowledge graph.
+
+        Uses COMBINED_HYBRID_SEARCH_CROSS_ENCODER when USE_RERANKER=true,
+        falls back to NODE_HYBRID_SEARCH_RRF otherwise or on reranker failure.
+        Results are filtered by SEARCH_MIN_SCORE threshold.
         """
         try:
-            logger.info(f"Searching for user {user_id}: {query}")
+            use_reranker = settings.USE_RERANKER
+            logger.info(
+                f"Searching for user {user_id}: {query} "
+                f"(limit={limit}, reranker={'ON' if use_reranker else 'OFF'})"
+            )
 
-            # Perform hybrid search with RERANKER (using search_)
-            # We must copy the config to set the limit safely
-            search_config = copy.deepcopy(COMBINED_HYBRID_SEARCH_CROSS_ENCODER)
-            search_config.limit = limit
+            results = []
 
-            try:
-                # search_ returns SearchResults object containing nodes and edges
+            if use_reranker:
+                # Attempt cross-encoder reranker search
+                search_config = copy.deepcopy(COMBINED_HYBRID_SEARCH_CROSS_ENCODER)
+                search_config.limit = limit
+                try:
+                    search_results = await self.client.search_(
+                        query=query,
+                        center_node_uuid=center_node_uuid,
+                        config=search_config,
+                        group_ids=[user_id],
+                    )
+                    results = search_results.edges
+                    logger.info(
+                        f"✓ Reranker search successful, got {len(results)} results"
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"⚠️ Reranker search failed ({e}), falling back to RRF"
+                    )
+                    use_reranker = False  # Fall through to RRF below
+
+            if not use_reranker:
+                # RRF search (no cross-encoder, uses reciprocal rank fusion)
+                search_config = copy.deepcopy(NODE_HYBRID_SEARCH_RRF)
+                search_config.limit = limit
                 search_results = await self.client.search_(
                     query=query,
                     center_node_uuid=center_node_uuid,
                     config=search_config,
                     group_ids=[user_id],
                 )
-                # Extract edges from results
                 results = search_results.edges
-                logger.info(f"✓ Reranker search successful, got {len(results)} results")
-
-            except Exception as e:
-                logger.warning(
-                    f"⚠️ Reranker search failed ({e}), falling back to basic search"
-                )
-                # Fallback to basic search (no reranker)
-                results = await self.client.search(
-                    query=query,
-                    center_node_uuid=center_node_uuid,
-                    num_results=limit,
-                    group_ids=[user_id],
-                )
+                logger.info(f"✓ RRF search got {len(results)} results")
 
             # Collect episode UUIDs from results to fetch file_name metadata
             episode_uuids = set()
             for result in results[:limit]:
-                # Extract episode UUID from edges
-                # EntityEdge objects have an 'episodes' list attribute
                 ep_list = getattr(result, "episodes", [])
                 if ep_list and len(ep_list) > 0:
                     episode_uuids.add(ep_list[0])
@@ -1818,13 +1953,13 @@ class GraphitiWrapper:
             episode_file_map = {}
             if episode_uuids:
                 driver = self.client.driver
-                query = """
+                file_query = """
                 MATCH (e:Episodic)
                 WHERE e.uuid IN $uuids
                 RETURN e.uuid AS uuid, e.file_name AS file_name
                 """
                 result_records = await driver.execute_query(
-                    query, uuids=list(episode_uuids), database_="neo4j"
+                    file_query, uuids=list(episode_uuids), database_="neo4j"
                 )
                 for record in result_records.records:
                     episode_file_map[record["uuid"]] = record.get("file_name")
@@ -1832,13 +1967,9 @@ class GraphitiWrapper:
             # Convert to MemoryHit format with file_name in metadata
             hits = []
             for result in results[:limit]:
-                # Get episode UUID again for mapping
                 ep_list = getattr(result, "episodes", [])
                 ep_uuid = ep_list[0] if ep_list and len(ep_list) > 0 else None
-
                 file_name = episode_file_map.get(ep_uuid) if ep_uuid else None
-
-                # Check for score, default to 1.0 (basic search often lacks score in Edge objects)
                 score = getattr(result, "score", 1.0)
 
                 hit = MemoryHit(
@@ -1862,6 +1993,17 @@ class GraphitiWrapper:
                     },
                 )
                 hits.append(hit)
+
+            # Apply min_score filter (Task 4)
+            min_score = settings.SEARCH_MIN_SCORE
+            if min_score > 0:
+                before_filter = len(hits)
+                hits = [h for h in hits if h.score >= min_score]
+                if before_filter != len(hits):
+                    logger.info(
+                        f"Score filter: {before_filter} -> {len(hits)} hits "
+                        f"(min_score={min_score})"
+                    )
 
             logger.info(f"Found {len(hits)} results for query: {query}")
             return hits
