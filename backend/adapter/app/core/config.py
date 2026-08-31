@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     # Search quality
     SEARCH_MIN_SCORE: float = 0.0  # Min relevance score (0.0 = no filtering)
     USE_RERANKER: bool = True  # Use cross-encoder reranker; false = fallback to RRF
-    RERANKER_TIMEOUT: int = 5
+    RERANKER_TIMEOUT: int = 30
     RERANKER_MAX_RETRIES: int = 1
     
     # Adapter
