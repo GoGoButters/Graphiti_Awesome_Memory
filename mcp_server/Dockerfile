@@ -7,6 +7,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY graphiti_mcp.py .
 
-EXPOSE 8001
+EXPOSE 8000
 
-CMD ["python", "graphiti_mcp.py"]
+CMD ["python", "graphiti_mcp.py", "--server"]
