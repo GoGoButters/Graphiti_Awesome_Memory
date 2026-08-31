@@ -1908,6 +1908,7 @@ class GraphitiWrapper:
             )
 
             results = []
+            reranker_scores = []
 
             if use_reranker:
                 # Attempt cross-encoder reranker search
@@ -1925,8 +1926,11 @@ class GraphitiWrapper:
                         timeout=settings.RERANKER_TIMEOUT
                     )
                     results = search_results.edges
+                    reranker_scores = getattr(search_results, "edge_reranker_scores", []) or []
+                    logger.debug(f"edges={len(results)}, scores={len(reranker_scores)}")
+                    log_scores = [round(s, 2) for s in reranker_scores[:10]]
                     logger.info(
-                        f"✓ Reranker search successful, got {len(results)} results"
+                        f"✓ Reranker search successful, got {len(results)} results, scores={log_scores}"
                     )
                 except Exception as e:
                     logger.warning(
@@ -1971,11 +1975,11 @@ class GraphitiWrapper:
 
             # Convert to MemoryHit format with file_name in metadata
             hits = []
-            for result in results[:limit]:
+            for i, result in enumerate(results[:limit]):
                 ep_list = getattr(result, "episodes", [])
                 ep_uuid = ep_list[0] if ep_list and len(ep_list) > 0 else None
                 file_name = episode_file_map.get(ep_uuid) if ep_uuid else None
-                score = getattr(result, "score", 1.0)
+                score = reranker_scores[i] if i < len(reranker_scores) else getattr(result, "score", 1.0)
 
                 hit = MemoryHit(
                     fact=result.fact,
@@ -2003,12 +2007,20 @@ class GraphitiWrapper:
             min_score = settings.SEARCH_MIN_SCORE
             if min_score > 0:
                 before_filter = len(hits)
-                hits = [h for h in hits if h.score >= min_score]
-                if before_filter != len(hits):
-                    logger.info(
-                        f"Score filter: {before_filter} -> {len(hits)} hits "
-                        f"(min_score={min_score})"
-                    )
+                if before_filter > 0:
+                    hits_filtered = [h for h in hits if h.score >= min_score]
+                    if len(hits_filtered) == 0:
+                        scores_list = [h.score for h in hits]
+                        logger.warning(
+                            f"all {before_filter} results filtered out by min_score={min_score}, "
+                            f"scores range=[{min(scores_list):.4f}..{max(scores_list):.4f}]"
+                        )
+                    elif before_filter != len(hits_filtered):
+                        logger.info(
+                            f"Score filter: {before_filter} -> {len(hits_filtered)} hits "
+                            f"(min_score={min_score})"
+                        )
+                    hits = hits_filtered
 
             logger.info(f"Found {len(hits)} results for query: {query}")
             return hits
