@@ -29,6 +29,7 @@ from urllib.parse import quote
 import httpx
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -45,7 +46,27 @@ if PROFILE == "code" and not PINNED_USER_ID:
 # The pinned scope as a plain str: the code profile always has one.
 SCOPE: str = PINNED_USER_ID or ""
 
-mcp = FastMCP("graphiti_mcp")
+
+def _transport_security_settings() -> Optional[TransportSecuritySettings]:
+    """Host/Origin allow-list for the HTTP transport.
+
+    FastMCP only accepts ``127.0.0.1``/``localhost`` Host headers by default, so a
+    server reached over the LAN answers 421 Misdirected Request. Set
+    ``MCP_ALLOWED_HOSTS`` (comma separated, ``host:*`` wildcard for any port) to
+    widen it; the DNS-rebinding protection stays on.
+    """
+    allowed_hosts = [h.strip() for h in os.getenv("MCP_ALLOWED_HOSTS", "").split(",") if h.strip()]
+    allowed_origins = [o.strip() for o in os.getenv("MCP_ALLOWED_ORIGINS", "").split(",") if o.strip()]
+    if not allowed_hosts and not allowed_origins:
+        return None
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=allowed_hosts or ["127.0.0.1:*", "localhost:*", "[::1]:*"],
+        allowed_origins=allowed_origins,
+    )
+
+
+mcp = FastMCP("graphiti_mcp", transport_security=_transport_security_settings())
 
 API_BASE_URL = os.getenv("GRAPHITI_API_BASE_URL", "http://localhost:8000")
 API_KEY = os.getenv("GRAPHITI_API_KEY", "adapter-secret-api-key")
