@@ -289,11 +289,20 @@ async def graphiti_delete_file(params: DeleteFileInput) -> str:
 async def graphiti_get_user_stats(user_id: str) -> str:
     """Get statistics for a user."""
     try:
-        result = await _make_request(f"/memory/users/{user_id}/episodes?limit=1")
-        
+        # The adapter's `total` reflects the number of episodes in the response,
+        # so a small limit makes the count meaningless. Request the adapter max
+        # (1000) and report that count; if it equals the cap, report it as ">= ".
+        result = await _make_request(f"/memory/users/{user_id}/episodes?limit=1000")
+
         total = result.get("total", 0)
-        
-        return f"# User Statistics: {user_id}\n\n- **Total Episodes**: {total}"
+        try:
+            total = int(total)
+        except (TypeError, ValueError):
+            total = len(result.get("episodes", []) or [])
+        capped = total >= 1000
+        shown = f">= {total} (capped at 1000)" if capped else str(total)
+
+        return f"# User Statistics: {user_id}\n\n- **Total Episodes**: {shown}"
 
     except Exception as e:
         return _handle_error(e)
