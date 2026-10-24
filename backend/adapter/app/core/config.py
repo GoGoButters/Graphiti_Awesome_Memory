@@ -34,6 +34,15 @@ class Settings(BaseSettings):
     RERANKER_API_KEY: str
     RERANKER_MODEL: str = "reranker-001"
     
+    # Extraction quality
+    CUSTOM_EXTRACTION_INSTRUCTIONS: str = ""
+    
+    # Search quality
+    SEARCH_MIN_SCORE: float = 0.0  # Min relevance score (0.0 = no filtering)
+    USE_RERANKER: bool = True  # Use cross-encoder reranker; false = fallback to RRF
+    RERANKER_TIMEOUT: int = 30
+    RERANKER_MAX_RETRIES: int = 1
+    
     # Adapter
     ADAPTER_API_KEY: str
     JWT_SECRET: str

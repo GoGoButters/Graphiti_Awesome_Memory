@@ -1,0 +1,10 @@
+{
+  "remoteServers": {
+    "docker-server": {
+      "host": "192.168.1.107",
+      "port": 22,
+      "user": "docker",
+      "description": "Docker-сервер для развертывания проектов"
+    }
+  }
+}

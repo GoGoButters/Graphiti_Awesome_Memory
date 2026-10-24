@@ -81,18 +81,6 @@ class DeleteFileInput(BaseModel):
     file_name: str = Field(..., description="File name to delete", min_length=1, max_length=500)
 
 
-class RecallContextInput(BaseModel):
-    """Input for memory recall context injection."""
-    model_config = ConfigDict(
-        str_strip_whitespace=True,
-        validate_assignment=True
-    )
-
-    user_id: str = Field(..., description="User identifier", min_length=1, max_length=200)
-    query: str = Field(..., description="Current conversation query to find relevant memories for", min_length=1, max_length=1000)
-    limit: int = Field(default=5, description="Maximum memories to recall", ge=1, le=20)
-
-
 async def _make_request(endpoint: str, method: str = "GET", **kwargs) -> Dict[str, Any]:
     """Make API request to Graphiti adapter."""
     headers = {"X-API-KEY": API_KEY}
@@ -308,53 +296,20 @@ async def graphiti_get_user_stats(user_id: str) -> str:
         return _handle_error(e)
 
 
-@mcp.tool(
-    name="graphiti_recall_context",
-    annotations={
-        "title": "Recall Memory Context",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": False
-    }
-)
-async def graphiti_recall_context(params: RecallContextInput) -> str:
-    """Retrieve relevant memories and format them as context for the current conversation. 
-    
-    Use this tool BEFORE responding to a user to recall what you know about them.
-    The returned block should be prepended to your response context.
-    """
-    try:
-        payload = {
-            "user_id": params.user_id,
-            "query": params.query,
-            "limit": params.limit
-        }
-        
-        result = await _make_request("/memory/query", method="POST", json=payload)
-        hits = result.get("hits", [])
-        
-        if not hits:
-            return f"## Memory Recall: {params.user_id}\n\nNo relevant memories found."
-        
-        lines = [f"## Memory Recall: {params.user_id}", ""]
-        lines.append("Relevant facts from long-term memory:")
-        lines.append("")
-        
-        for hit in hits:
-            fact = hit.get('fact', 'N/A')
-            score = hit.get('score', 0)
-            date = hit.get('created_at', 'N/A')
-            lines.append(f"- {fact} (confidence: {score:.0%}, from: {date})")
-        
-        lines.append("")
-        lines.append("Use these facts to personalize your response to the user.")
-        
-        return "\n".join(lines)
-        
-    except Exception as e:
-        return _handle_error(e)
-
-
 if __name__ == "__main__":
-    mcp.run()
+    import sys
+    
+    if len(sys.argv) > 1 and sys.argv[1] == "--server":
+        import uvicorn
+        from mcp.server.fastmcp import FastMCP
+        mcp = FastMCP("graphiti_mcp")
+        # Re-register tools - they use closure, need to be re-created
+        # Actually run differently - use uvicorn directly
+        uvicorn.run(
+            "graphiti_mcp:mcp",
+            host="0.0.0.0",
+            port=MCP_SERVER_PORT,
+            reload=False
+        )
+    else:
+        mcp.run()
