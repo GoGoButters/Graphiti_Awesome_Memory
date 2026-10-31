@@ -78,3 +78,49 @@ async def test_retry_timeout():
                 # Should have tried a few times until timeout
                 assert mock_super.call_count >= 1
                 assert mock_sleep.call_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_reasoning_effort_injected_for_main_model_only():
+    import json as _json
+    from app.core.config import settings
+
+    wrapper = GraphitiWrapper()
+    transport = wrapper.client.llm_client.client._client._transport
+    sent = []
+
+    async def fake_send(self, request):
+        sent.append(_json.loads(request.content.decode()))
+        return httpx.Response(200, content=b'{"ok": true}')
+
+    with patch('httpx.AsyncHTTPTransport.handle_async_request', new=fake_send):
+        main = httpx.Request("POST", "http://llm/v1/responses", json={"model": settings.LLM_MODEL + "-main"})
+        await transport.handle_async_request(main)
+        transport.fast_model = "fast-model"
+        fast = httpx.Request("POST", "http://llm/v1/responses", json={"model": "fast-model"})
+        await transport.handle_async_request(fast)
+
+    assert sent[0]["reasoning"] == {"effort": settings.LLM_REASONING_EFFORT}
+    assert "reasoning" not in sent[1]
+
+
+@pytest.mark.asyncio
+async def test_reasoning_effort_dropped_when_provider_rejects_it():
+    import json as _json
+
+    wrapper = GraphitiWrapper()
+    transport = wrapper.client.llm_client.client._client._transport
+    sent = []
+
+    async def fake_send(self, request):
+        body = _json.loads(request.content.decode())
+        sent.append(body)
+        status = 400 if "reasoning" in body else 200
+        return httpx.Response(status, content=b'{"error": "unsupported"}' if status == 400 else b'{"ok": true}')
+
+    with patch('httpx.AsyncHTTPTransport.handle_async_request', new=fake_send):
+        request = httpx.Request("POST", "http://llm/v1/responses", json={"model": "main-model"})
+        response = await transport.handle_async_request(request)
+
+    assert response.status_code == 200
+    assert "reasoning" in sent[0] and "reasoning" not in sent[-1]

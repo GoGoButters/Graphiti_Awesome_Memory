@@ -54,6 +54,31 @@ class Settings(BaseSettings):
     GRAPH_DEFAULT_NODES: int = 300
     GRAPH_MAX_NODES: int = 3000
     GRAPH_MAX_EDGES_FACTOR: int = 4
+
+    # LLM request tuning. Graphiti only sends reasoning effort to gpt-5/o-series models,
+    # so other reasoning models (deepseek via litellm) fall back to the provider default
+    # (often "high") and burn the whole output budget. "" = do not inject.
+    LLM_REASONING_EFFORT: str = "low"
+    LLM_MAX_TOKENS: int = 16384
+
+    # Episode processing (PendingEpisode retry queue)
+    EPISODE_MAX_ATTEMPTS: int = 3
+    EPISODE_CONCURRENCY: int = 4
+    EPISODE_RETRY_AFTER_MINUTES: int = 30
+
+    # Search: temporal validity and recency
+    SEARCH_EXCLUDE_INVALID: bool = True  # drop facts invalidated/expired by newer ones
+    SEARCH_RECENCY_WEIGHT: float = 0.15  # 0 = pure relevance ordering
+    SEARCH_RECENCY_HALF_LIFE_DAYS: float = 180.0
+
+    # Ingestion: skip LLM extraction for trivial acknowledgements ("ok", "спасибо")
+    SKIP_TRIVIAL_MESSAGES: bool = True
+
+    # Nightly consolidation ("sleep-time" maintenance)
+    CONSOLIDATION_ENABLED: bool = True
+    CONSOLIDATION_HOUR_UTC: int = 3
+    CONSOLIDATION_DELETE_ORPHANS: bool = False  # report only by default
+    CONSOLIDATION_BUILD_COMMUNITIES: bool = False  # LLM-heavy, opt-in
     
     @property
     def allowed_origins_list(self) -> List[str]:

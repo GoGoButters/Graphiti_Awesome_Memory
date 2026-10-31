@@ -1,20 +1,43 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from app.models.schemas import (
     MemoryAppendRequest, MemoryAppendResponse,
+    MemoryBulkAppendRequest, MemoryBulkAppendResponse,
     MemoryQueryRequest, MemoryQueryResponse,
     MemorySummaryRequest, MemorySummaryResponse,
     SourceGroup, GroupedMemoryQueryResponse
 )
 from app.core.auth import get_api_key
+from app.core.config import settings
 from app.services.graphiti_client import graphiti_client
-from app.services.worker_tasks import process_episode
 from datetime import datetime, timezone
+import re
 import uuid
 import logging
 import os
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# Acknowledgements that carry no facts: skipped before LLM extraction
+_TRIVIAL_MESSAGES = {
+    "ok", "okay", "ок", "окей", "да", "нет", "ага", "угу", "спасибо", "спс",
+    "благодарю", "thanks", "thank you", "thx", "ty", "yes", "no", "+", "👍",
+}
+
+
+def is_trivial_message(text: str) -> bool:
+    normalized = re.sub(r"[\s.!?,)]+$", "", (text or "").strip().lower())
+    return len(normalized) < 4 or normalized in _TRIVIAL_MESSAGES
+
+
+def _skip_trivial(text: str, metadata) -> bool:
+    # File chunks are never skipped
+    return (
+        settings.SKIP_TRIVIAL_MESSAGES
+        and not (metadata or {}).get("file_name")
+        and is_trivial_message(text)
+    )
+
 
 @router.post("/append", response_model=MemoryAppendResponse)
 async def append_memory(
@@ -23,30 +46,27 @@ async def append_memory(
     api_key: str = Depends(get_api_key)
 ):
     try:
-        # Generate ID and TS
-        episode_id = str(uuid.uuid4())
         created_ts = datetime.now(timezone.utc)
-        
-        # Add to Graphiti (Synchronous part - e.g. raw storage)
-        # For now we just acknowledge receipt and offload everything or do a quick write
-        # The prompt says: "Adapter returns ok synchronously... then asynchronously launches tasks"
-        
-        # We can call graphiti_client.add_episode here if it's fast, or put it in background
-        # Let's assume we do a quick write or just queue it.
-        # If we use RQ, we would enqueue here.
-        # For simplicity in this "dev setup", we'll use FastAPI BackgroundTasks for now, 
-        # but the prompt asked for Redis+RQ. I should use RQ if possible.
-        # Since I haven't set up the RQ connection in main yet, I'll stick to a placeholder
-        # that calls the async function. In a real RQ setup: q.enqueue(process_episode, ...)
-        
-        # background_tasks.add_task(process_episode, request.user_id, request.text, request.metadata)
-        
-        # 1. Save PendingEpisode immediately for instant UI feedback
-        await graphiti_client.save_pending_episode(request.user_id, request.text, request.metadata)
-        
+
+        if _skip_trivial(request.text, request.metadata):
+            logger.info(f"Skipping trivial message for user {request.user_id}: {request.text!r}")
+            return MemoryAppendResponse(ok=True, id="skipped", created_ts=created_ts)
+
+        # 1. Save PendingEpisode immediately for instant UI feedback (durable retry queue)
+        pending_uuid = await graphiti_client.save_pending_episode(
+            request.user_id, request.text, request.metadata
+        )
+        episode_id = pending_uuid or str(uuid.uuid4())
+
         # 2. Execute heavy processing in background
-        background_tasks.add_task(graphiti_client.add_episode, request.user_id, request.text, request.metadata)
-        
+        background_tasks.add_task(
+            graphiti_client.add_episode,
+            request.user_id,
+            request.text,
+            request.metadata,
+            pending_uuid=pending_uuid,
+        )
+
         return MemoryAppendResponse(
             ok=True,
             id=episode_id,
@@ -56,13 +76,71 @@ async def append_memory(
         logger.error(f"Error in append_memory: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+async def _run_bulk(user_id: str, items: list, pending_uuids: list):
+    try:
+        await graphiti_client.add_episodes_bulk(user_id, items, pending_uuids)
+    except Exception as e:
+        # PendingEpisodes stay queued; the retry loop processes them one by one
+        logger.error(f"Bulk ingestion failed for user {user_id}: {e}")
+
+
+@router.post("/append/bulk", response_model=MemoryBulkAppendResponse)
+async def append_memory_bulk(
+    request: MemoryBulkAppendRequest,
+    background_tasks: BackgroundTasks,
+    api_key: str = Depends(get_api_key)
+):
+    """
+    Add many episodes at once (e.g. file chunks). Uses graphiti add_episode_bulk:
+    shared extraction and deduplication passes, far fewer LLM calls.
+    """
+    try:
+        items = []
+        pending_uuids = []
+        skipped = 0
+        for item in request.items:
+            metadata = item.metadata or {}
+            if _skip_trivial(item.text, metadata):
+                skipped += 1
+                continue
+            pending_uuids.append(
+                await graphiti_client.save_pending_episode(request.user_id, item.text, metadata)
+            )
+            items.append({"text": item.text, "metadata": metadata})
+
+        if items:
+            background_tasks.add_task(_run_bulk, request.user_id, items, pending_uuids)
+
+        return MemoryBulkAppendResponse(
+            ok=True,
+            accepted=len(items),
+            skipped=skipped,
+            created_ts=datetime.now(timezone.utc),
+        )
+    except Exception as e:
+        logger.error(f"Error in append_memory_bulk: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def _search(request: MemoryQueryRequest):
+    return await graphiti_client.search(
+        request.user_id,
+        request.query,
+        request.limit,
+        center_node_uuid=request.center_node_uuid,
+        include_invalid=request.include_invalid,
+        search_mode=request.search_mode,
+    )
+
+
 @router.post("/query", response_model=MemoryQueryResponse)
 async def query_memory(
     request: MemoryQueryRequest,
     api_key: str = Depends(get_api_key)
 ):
     try:
-        hits = await graphiti_client.search(request.user_id, request.query, request.limit)
+        hits = await _search(request)
         return MemoryQueryResponse(
             hits=hits,
             total=len(hits)
@@ -82,7 +160,7 @@ async def query_memory_grouped(
     Facts from conversation are grouped under 'conversation'.
     """
     try:
-        hits = await graphiti_client.search(request.user_id, request.query, request.limit)
+        hits = await _search(request)
         
         # Group hits by source
         groups_map = {}  # source_name -> list of hits
@@ -193,6 +271,21 @@ Recent memories:
 
     except Exception as e:
         logger.error(f"Error in summarize_memory: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/users/{user_id}/profile", response_model=MemorySummaryResponse)
+async def get_user_profile(
+    user_id: str,
+    api_key: str = Depends(get_api_key)
+):
+    """
+    Graph-based profile without an LLM call: community summaries if they were
+    built, otherwise summaries of the user's most connected entities.
+    """
+    try:
+        return MemorySummaryResponse(summary=await graphiti_client.get_summary(user_id))
+    except Exception as e:
+        logger.error(f"Error building profile for user {user_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/users/{user_id}/episodes")

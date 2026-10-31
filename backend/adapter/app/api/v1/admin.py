@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, File, UploadFile, Query
 from app.models.schemas import AdminUsersResponse, UserStats
 from app.core.auth import verify_jwt
 from app.core.config import settings
@@ -13,36 +13,12 @@ router = APIRouter()
 async def get_users(username: str = Depends(verify_jwt)):
     """Get list of all users with their episode counts"""
     try:
-        # Query Neo4j to get unique users from episodes
-        # Graphiti stores episodes with source_description like "api (user)" or "n8n (user)"
-        # We extract user_id from episode names which follow pattern: {user_id}_{timestamp}
-
-        # Extract user_id from episode names. Patterns:
-        # - Regular: "35145416_2026-01-11T09:21:50" -> user_id = "35145416"
-        # - Crypto: "ETH_USDT_2026-01-17T10:05:15" -> user_id = "ETH_USDT"
-        #
-        # Strategy: Find last underscore before 4-digit year and take everything before it
-        # Pure Cypher implementation (no APOC required)
+        # Users are graphiti group_ids (exact tenancy key). Episode names
+        # "{user_id}_{timestamp}" are not parsed: ids may contain "_" or "-".
         query = """
         MATCH (e:Episodic)
-        WHERE e.name IS NOT NULL AND e.name =~ '.*_\\d{4}-.*'
-        
-        // Split by underscore
-        WITH e, split(e.name, '_') AS parts, e.created_at as created_at
-        
-        // Find which part is the timestamp (starts with 4-digit year)
-        WITH e, parts, created_at,
-             [i IN range(0, size(parts)-1) WHERE parts[i] =~ '^\\d{4}-.*' | i][0] AS timestamp_idx
-        
-        // user_id is all parts before timestamp_idx joined with underscore
-        WITH created_at,
-             reduce(s = '', i IN range(0, timestamp_idx-1) | 
-                 CASE WHEN s = '' THEN parts[i] ELSE s + '_' + parts[i] END
-             ) AS user_id
-        
-        WHERE user_id IS NOT NULL AND user_id <> ''
-        
-        WITH user_id, count(*) AS episodes_count, max(created_at) as last_updated
+        WHERE e.group_id IS NOT NULL AND e.group_id <> ''
+        WITH e.group_id AS user_id, count(*) AS episodes_count, max(e.created_at) AS last_updated
         RETURN user_id, episodes_count, last_updated
         ORDER BY episodes_count DESC
         """
@@ -91,6 +67,63 @@ async def get_user_graph(
         return await graphiti_client.get_user_graph(user_id, limit=limit)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load graph: {e}")
+
+
+@router.get("/users/{user_id}/communities")
+async def get_user_communities(user_id: str, username: str = Depends(verify_jwt)):
+    """Topic clusters (Community nodes) of the user's graph, largest first."""
+    try:
+        communities = await graphiti_client.get_communities(user_id)
+        return {"communities": communities, "total": len(communities)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load communities: {e}")
+
+
+@router.get("/users/{user_id}/communities/status")
+async def get_communities_status(user_id: str, username: str = Depends(verify_jwt)):
+    return graphiti_client.get_community_job(user_id)
+
+
+@router.post("/users/{user_id}/communities/build")
+async def build_user_communities(
+    user_id: str,
+    background_tasks: BackgroundTasks,
+    username: str = Depends(verify_jwt),
+):
+    """
+    Rebuild communities for this user in background (label propagation +
+    LLM summaries; replaces only this user's Community nodes).
+    """
+    job = graphiti_client.get_community_job(user_id)
+    if job.get("status") == "running":
+        return {"status": "running"}
+    background_tasks.add_task(graphiti_client.build_communities_for_user, user_id)
+    return {"status": "started"}
+
+
+@router.get("/users/{user_id}/communities/{community_uuid}/members")
+async def get_community_members(
+    user_id: str,
+    community_uuid: str,
+    limit: int = Query(
+        default=settings.GRAPH_DEFAULT_NODES,
+        ge=10,
+        le=settings.GRAPH_MAX_NODES,
+    ),
+    username: str = Depends(verify_jwt),
+):
+    try:
+        return await graphiti_client.get_community_members_graph(
+            user_id, community_uuid, limit=limit
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load community: {e}")
+
+
+@router.post("/consolidate")
+async def run_consolidation(username: str = Depends(verify_jwt)):
+    """Run the nightly consolidation now (non-destructive unless configured)."""
+    return await graphiti_client.consolidate()
 
 
 @router.delete("/users/{user_id}")

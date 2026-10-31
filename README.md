@@ -247,9 +247,17 @@ Admin endpoints require JWT token obtained by logging into the Admin UI at `http
 #### User Management
 
 - `GET /admin/users` - List all users with episode counts
-- `GET /admin/users/{user_id}/graph` - Get user's knowledge graph
+- `GET /admin/users/{user_id}/graph?limit=300` - Top-N entities by degree and the edges between them (`limit` 10–`GRAPH_MAX_NODES`); response includes `total_nodes`, `total_edges`, `truncated`
 - `GET /admin/users/{user_id}/episodes?limit=N` - Get user episodes (admin)
-- `DELETE /admin/users/{user_id}` - Delete user and all data
+- `DELETE /admin/users/{user_id}` - Delete user and all data (scoped by exact `group_id`)
+
+#### Communities & Consolidation
+
+- `GET /admin/users/{user_id}/communities` - Topic clusters with summaries (largest first)
+- `POST /admin/users/{user_id}/communities/build` - Rebuild this user's communities in background (LLM summaries)
+- `GET /admin/users/{user_id}/communities/status` - Build status (`idle|running|done|error`)
+- `GET /admin/users/{user_id}/communities/{uuid}/members?limit=300` - Community members in graph format
+- `POST /admin/consolidate` - Run the nightly consolidation now
 
 #### File Management
 
@@ -272,6 +280,29 @@ Admin endpoints require JWT token obtained by logging into the Admin UI at `http
   - **Safe mode** - does NOT delete episodes, only creates Entity nodes
   - Useful after Graphiti updates or to fix missing graph data
   - May create duplicate episodes (can be cleaned later if needed)
+
+### Memory Features
+
+- `POST /memory/append/bulk` — `{user_id, items: [{text, metadata}]}` (≤200 items), ingested with graphiti `add_episode_bulk`; failed batches fall back to the per-episode retry queue
+- `POST /memory/query` accepts `include_invalid` (default: superseded/expired facts are hidden), `search_mode` (`hybrid` | `node_distance`) and `center_node_uuid` (default center for `node_distance`: the user's most connected entity)
+- `GET /memory/users/{user_id}/profile` — graph-based profile without an LLM call (community summaries, else top entities)
+- Trivial acknowledgements (`ok`, `спасибо`, `👍`, < 4 chars) are not sent to LLM extraction; `/append` returns `id: "skipped"`
+- Pending episodes carry `status` (`pending|processing|failed`) and `attempts`; after `EPISODE_MAX_ATTEMPTS` they are marked `failed`
+
+Settings (env, defaults in `backend/adapter/app/core/config.py`):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `GRAPH_DEFAULT_NODES` / `GRAPH_MAX_NODES` | 300 / 3000 | Graph view node limit |
+| `LLM_REASONING_EFFORT` | `low` | Injected for the main model on the Responses API (`""` disables) |
+| `LLM_MAX_TOKENS` | 16384 | Output token budget |
+| `EPISODE_MAX_ATTEMPTS` / `EPISODE_CONCURRENCY` / `EPISODE_RETRY_AFTER_MINUTES` | 3 / 4 / 30 | Episode processing queue |
+| `SEARCH_EXCLUDE_INVALID` | `true` | Hide superseded facts |
+| `SEARCH_RECENCY_WEIGHT` / `SEARCH_RECENCY_HALF_LIFE_DAYS` | 0.15 / 180 | Recency blend in ranking (0 disables) |
+| `SKIP_TRIVIAL_MESSAGES` | `true` | Skip extraction for acknowledgements |
+| `CONSOLIDATION_ENABLED` / `CONSOLIDATION_HOUR_UTC` | `true` / 3 | Nightly maintenance |
+| `CONSOLIDATION_DELETE_ORPHANS` | `false` | Delete entities no episode mentions (reported otherwise) |
+| `CONSOLIDATION_BUILD_COMMUNITIES` | `false` | Rebuild communities nightly for groups with new episodes (LLM-heavy) |
 
 ## OpenClaw MCP Integration
 

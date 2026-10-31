@@ -47,8 +47,7 @@ class BackupService:
     async def export_user_episodes(self, user_id: str) -> List[Dict[str, Any]]:
         """Export all episodes for a user"""
         query = """
-        MATCH (e:Episodic)
-        WHERE e.name STARTS WITH $user_prefix
+        MATCH (e:Episodic {group_id: $user_id})
         RETURN e {
             .*,
             created_at: toString(e.created_at),
@@ -63,7 +62,7 @@ class BackupService:
         """
         
         async with self.driver.session() as session:
-            result = await session.run(query, user_prefix=f"{user_id}_")
+            result = await session.run(query, user_id=user_id)
             records = await result.data()
         
         episodes = [record["episode"] for record in records]
@@ -73,10 +72,7 @@ class BackupService:
     async def export_user_entities(self, user_id: str) -> List[Dict[str, Any]]:
         """Export all entities connected to user episodes"""
         query = """
-        MATCH (e:Episodic)
-        WHERE e.name STARTS WITH $user_prefix
-        MATCH (e)-[:MENTIONS]->(entity:Entity)
-        WITH DISTINCT entity
+        MATCH (entity:Entity {group_id: $user_id})
         RETURN entity {
             .*,
             created_at: toString(entity.created_at)
@@ -84,7 +80,7 @@ class BackupService:
         """
         
         async with self.driver.session() as session:
-            result = await session.run(query, user_prefix=f"{user_id}_")
+            result = await session.run(query, user_id=user_id)
             records = await result.data()
         
         entities = [record["entity"] for record in records]
@@ -94,11 +90,8 @@ class BackupService:
     async def export_user_edges(self, user_id: str) -> List[Dict[str, Any]]:
         """Export all relationship edges for user"""
         query = """
-        MATCH (e:Episodic)
-        WHERE e.name STARTS WITH $user_prefix
-        MATCH (e)-[:MENTIONS]->(entity1:Entity)
-        MATCH (entity1)-[r:RELATES_TO]-(entity2:Entity)
-        WITH DISTINCT r, entity1, entity2
+        MATCH (entity1:Entity)-[r:RELATES_TO]->(entity2:Entity)
+        WHERE r.group_id = $user_id
         RETURN {
             uuid: r.uuid,
             type: type(r),
@@ -123,7 +116,7 @@ class BackupService:
         """
         
         async with self.driver.session() as session:
-            result = await session.run(query, user_prefix=f"{user_id}_")
+            result = await session.run(query, user_id=user_id)
             records = await result.data()
         
         edges = [record["edge"] for record in records]
@@ -288,22 +281,16 @@ class BackupService:
     async def _delete_user_data(self, user_id: str):
         """Delete all data for a user"""
         query = """
-        // Delete episodes
-        MATCH (e:Episodic)
-        WHERE e.name STARTS WITH $user_prefix
-        DETACH DELETE e
-        
-        // Delete orphaned entities
-        WITH 1 as dummy
-        MATCH (entity:Entity)
-        WHERE NOT EXISTS {
-            MATCH (episode:Episodic)-[:RELATES_TO]->(entity)
-        }
-        DETACH DELETE entity
+        // Only this user's group: episodes, entities, communities.
+        // (Previously deleted every Entity in the DB lacking an
+        // (Episodic)-[:RELATES_TO]->() link, i.e. ALL users' entities.)
+        MATCH (n)
+        WHERE (n:Episodic OR n:Entity OR n:Community) AND n.group_id = $user_id
+        DETACH DELETE n
         """
         
         async with self.driver.session() as session:
-            await session.run(query, user_prefix=f"{user_id}_")
+            await session.run(query, user_id=user_id)
         
         logger.info(f"Deleted existing data for user {user_id}")
     

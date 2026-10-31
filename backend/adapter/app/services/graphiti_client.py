@@ -26,6 +26,7 @@ from graphiti_core.search.search_config_recipes import (
     NODE_HYBRID_SEARCH_RRF,
     COMBINED_HYBRID_SEARCH_CROSS_ENCODER,
     COMBINED_HYBRID_SEARCH_RRF,
+    EDGE_HYBRID_SEARCH_NODE_DISTANCE,
 )
 from graphiti_core.cross_encoder.client import CrossEncoderClient
 
@@ -443,6 +444,11 @@ class GraphitiWrapper:
 
     def __init__(self):
         """Initialize Graphiti client with Neo4j connection and custom LLM/Embedder"""
+        # PendingEpisode uuids queued or running in this process
+        self._inflight: set = set()
+        self._center_cache: Dict[str, Any] = {}  # user_id -> (center uuid, ts)
+        self._community_jobs: Dict[str, Dict[str, Any]] = {}
+        self._episode_semaphore = None
         try:
             import os
 
@@ -1421,10 +1427,40 @@ class GraphitiWrapper:
                     self.main_parsed = urlparse(main_base_url)
                     self.fast_parsed = urlparse(fast_base_url)
 
+                def _inject_reasoning_effort(self, request, data, model):
+                    """
+                    Graphiti sends `reasoning` only for gpt-5/o-series models, so other
+                    reasoning models (deepseek via litellm) run at the provider default
+                    effort and exhaust max_output_tokens. Inject the configured effort
+                    for the main model on the Responses API. Returns the new request or None.
+                    """
+                    effort = settings.LLM_REASONING_EFFORT
+                    if (
+                        not effort
+                        or request.method != "POST"
+                        or model == self.fast_model
+                        or not request.url.path.endswith("/responses")
+                        or "reasoning" in data
+                    ):
+                        return None
+                    data["reasoning"] = {"effort": effort}
+                    headers_dict = {
+                        k: v
+                        for k, v in request.headers.items()
+                        if k.lower() != "content-length"
+                    }
+                    return httpx.Request(
+                        method=request.method,
+                        url=request.url,
+                        headers=headers_dict,
+                        content=json.dumps(data).encode("utf-8"),
+                    )
+
                 async def handle_async_request(self, request):
                     # Determine which endpoint to use based on model in request
                     original_url = str(request.url)
                     original_auth = request.headers.get("authorization", "not set")
+                    request_without_effort = None
 
                     try:
                         body = (
@@ -1445,6 +1481,11 @@ class GraphitiWrapper:
                             data = {}
 
                         model = data.get("model", "")
+
+                        injected = self._inject_reasoning_effort(request, data, model)
+                        if injected is not None:
+                            request_without_effort = request
+                            request = injected
 
                         logger.info(
                             f"🔍 Routing request: model={model}, url={original_url}"
@@ -1514,6 +1555,15 @@ class GraphitiWrapper:
                     # Continue with cleaning and retry logic from parent class
                     logger.info(f"⏳ Calling parent handler (CleaningHTTPTransport)...")
                     response = await super().handle_async_request(request)
+                    if request_without_effort is not None and response.status_code == 400:
+                        # Provider rejected the reasoning parameter: resend unchanged
+                        logger.warning(
+                            "LLM rejected injected reasoning effort (400), retrying without it"
+                        )
+                        await response.aclose()
+                        response = await super().handle_async_request(
+                            request_without_effort
+                        )
                     logger.info(
                         f"✓ Parent handler returned: status={response.status_code}"
                     )
@@ -1551,6 +1601,7 @@ class GraphitiWrapper:
                 config=LLMConfig(
                     model=settings.LLM_MODEL, small_model=settings.LLM_FAST_MODEL
                 ),
+                max_tokens=settings.LLM_MAX_TOKENS,
             )
 
             # Create AsyncOpenAI client for embeddings
@@ -1627,9 +1678,11 @@ class GraphitiWrapper:
                 uuid: $uuid,
                 content: $text,
                 created_at: $created_at,
+                updated_at: $created_at,
                 source: $source,
                 file_name: $file_name,
                 status: 'pending',
+                attempts: 0,
                 user_id: $user_id
             })
             MERGE (u)-[:HAS_PENDING]->(p)
@@ -1655,28 +1708,70 @@ class GraphitiWrapper:
             logger.error(f"Error saving pending episode: {e}")
             return None
 
-    async def delete_pending_episode(self, user_id: str, text: str):
+    async def delete_pending_episode(
+        self, user_id: str, text: str, pending_uuid: Optional[str] = None
+    ):
         """
         Delete a PendingEpisode node after successful processing.
-        Matches by content and user_id since UUID might differ.
+        Matches by uuid; falls back to content only for callers without a uuid,
+        and then removes a single node so identical messages stay queued.
         """
         try:
             driver = self.client.driver
-            query = """
-            MATCH (p:PendingEpisode)
-            WHERE p.user_id = $user_id AND p.content = $text
-            DETACH DELETE p
-            """
-            await driver.execute_query(
-                query, user_id=user_id, text=text, database_="neo4j"
-            )
+            if pending_uuid:
+                query = """
+                MATCH (p:PendingEpisode {uuid: $uuid})
+                DETACH DELETE p
+                """
+                await driver.execute_query(query, uuid=pending_uuid, database_="neo4j")
+            else:
+                query = """
+                MATCH (p:PendingEpisode)
+                WHERE p.user_id = $user_id AND p.content = $text
+                WITH p ORDER BY p.created_at LIMIT 1
+                DETACH DELETE p
+                """
+                await driver.execute_query(
+                    query, user_id=user_id, text=text, database_="neo4j"
+                )
             logger.info(f"Cleaned up PendingEpisode for user {user_id}")
         except Exception as e:
             logger.error(f"Error deleting pending episode: {e}")
 
+    async def _mark_pending(
+        self, pending_uuid: str, status: str, error: Optional[str] = None
+    ) -> int:
+        """
+        Update PendingEpisode status. 'processing' increments attempts.
+        Returns the attempts counter after the update (0 if the node is gone).
+        """
+        try:
+            query = """
+            MATCH (p:PendingEpisode {uuid: $uuid})
+            SET p.status = $status,
+                p.updated_at = $now,
+                p.attempts = coalesce(p.attempts, 0) + CASE WHEN $status = 'processing' THEN 1 ELSE 0 END,
+                p.last_error = CASE WHEN $error IS NULL THEN p.last_error ELSE $error END
+            RETURN p.attempts AS attempts
+            """
+            result = await self.client.driver.execute_query(
+                query,
+                uuid=pending_uuid,
+                status=status,
+                error=error[:500] if error else None,
+                now=datetime.now(timezone.utc).isoformat(),
+                database_="neo4j",
+            )
+            return result.records[0]["attempts"] if result.records else 0
+        except Exception as e:
+            logger.error(f"Error updating PendingEpisode {pending_uuid}: {e}")
+            return 0
+
     async def get_stuck_pending_episodes(self, minutes: int = 30) -> list:
         """
-        Get PendingEpisodes older than X minutes that might be stuck.
+        Get PendingEpisodes that are waiting (or stuck in processing) for more
+        than X minutes and still have retry attempts left.
+        Legacy nodes without status/attempts are treated as pending/0.
         """
         try:
             driver = self.client.driver
@@ -1687,20 +1782,31 @@ class GraphitiWrapper:
 
             query = """
             MATCH (p:PendingEpisode)
-            WHERE p.created_at < $cutoff
-            RETURN p.user_id as user_id, p.content as content, p.source as source, p.uuid as uuid
+            WHERE coalesce(p.status, 'pending') IN ['pending', 'processing']
+              AND coalesce(p.attempts, 0) < $max_attempts
+              AND coalesce(p.updated_at, p.created_at) < $cutoff
+            RETURN p.user_id as user_id, p.content as content, p.source as source,
+                   p.file_name as file_name, p.uuid as uuid
             """
 
-            result = await driver.execute_query(query, cutoff=cutoff, database_="neo4j")
+            result = await driver.execute_query(
+                query,
+                cutoff=cutoff,
+                max_attempts=settings.EPISODE_MAX_ATTEMPTS,
+                database_="neo4j",
+            )
 
             stuck = []
             if result.records:
                 for record in result.records:
+                    if record["uuid"] in self._inflight:
+                        continue
                     stuck.append(
                         {
                             "user_id": record["user_id"],
                             "content": record["content"],
                             "source": record["source"],
+                            "file_name": record["file_name"],
                             "uuid": record["uuid"],
                         }
                     )
@@ -1710,12 +1816,53 @@ class GraphitiWrapper:
             return []
 
     async def add_episode(
-        self, user_id: str, text: str, metadata: Optional[Dict[str, Any]] = None
+        self,
+        user_id: str,
+        text: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        pending_uuid: Optional[str] = None,
     ) -> str:
         """
         Add an episode (memory) to the knowledge graph.
         Called as background task after save_pending_episode.
+        Concurrency is bounded by EPISODE_CONCURRENCY; the PendingEpisode
+        (if pending_uuid is given) tracks status/attempts for the retry loop.
         """
+        import asyncio
+
+        if getattr(self, "_episode_semaphore", None) is None:
+            self._episode_semaphore = asyncio.Semaphore(settings.EPISODE_CONCURRENCY)
+
+        # In-flight set: queued/running episodes are never picked by the retry loop
+        if pending_uuid:
+            if pending_uuid in self._inflight:
+                logger.info(f"PendingEpisode {pending_uuid} already in flight, skipping")
+                return ""
+            self._inflight.add(pending_uuid)
+        try:
+            async with self._episode_semaphore:
+                if pending_uuid:
+                    await self._mark_pending(pending_uuid, "processing")
+                try:
+                    episode_name = await self._add_episode(user_id, text, metadata)
+                except Exception as e:
+                    if pending_uuid:
+                        attempts = await self._mark_pending(pending_uuid, "pending", str(e))
+                        if attempts >= settings.EPISODE_MAX_ATTEMPTS:
+                            await self._mark_pending(pending_uuid, "failed")
+                            logger.error(
+                                f"PendingEpisode {pending_uuid} failed {attempts} times, marked as failed"
+                            )
+                    raise
+                await self.delete_pending_episode(user_id, text, pending_uuid)
+                return episode_name
+        finally:
+            if pending_uuid:
+                self._inflight.discard(pending_uuid)
+
+    async def _add_episode(
+        self, user_id: str, text: str, metadata: Optional[Dict[str, Any]] = None
+    ) -> str:
         # 1. Create episode name
         timestamp = datetime.now(timezone.utc).isoformat()
         episode_name = f"{user_id}_{timestamp}"
@@ -1782,9 +1929,6 @@ class GraphitiWrapper:
                     f"Creating fallback CONTENT_RAW edge."
                 )
                 await self._create_fallback_edge(user_id, episode_name, text)
-
-            # 7. Cleanup PendingEpisode after successful processing
-            await self.delete_pending_episode(user_id, text)
 
             return episode_name
 
@@ -1860,7 +2004,6 @@ class GraphitiWrapper:
                 name: 'CONTENT_RAW',
                 group_id: $user_id,
                 created_at: datetime(),
-                expired_at: datetime({year: 9999, month: 12, day: 31}),
                 valid_at: datetime(),
                 invalid_at: null,
                 episodes: [$episode_name]
@@ -1886,36 +2029,120 @@ class GraphitiWrapper:
         except Exception as e:
             logger.error(f"Error creating fallback edge for {episode_name}: {e}")
 
+    async def _get_center_node_uuid(self, user_id: str) -> Optional[str]:
+        """Most connected Entity of the group, cached for 10 minutes (node_distance center)."""
+        import time
+
+        cache = getattr(self, "_center_cache", None)
+        if cache is None:
+            cache = self._center_cache = {}
+        cached = cache.get(user_id)
+        if cached and time.time() - cached[1] < 600:
+            return cached[0]
+        query = """
+        MATCH (n:Entity {group_id: $g})
+        WITH n, COUNT{(n)-[:RELATES_TO]-(:Entity)} AS degree
+        ORDER BY degree DESC
+        LIMIT 1
+        RETURN n.uuid AS uuid
+        """
+        result = await self.client.driver.execute_query(
+            query, g=user_id, database_="neo4j"
+        )
+        center = result.records[0]["uuid"] if result.records else None
+        cache[user_id] = (center, time.time())
+        return center
+
+    @staticmethod
+    def _is_invalid_fact(edge, now: datetime) -> bool:
+        """A fact is stale if it was superseded (expired_at) or its validity ended."""
+        expired_at = getattr(edge, "expired_at", None)
+        if expired_at is not None and expired_at.year < 9999:
+            return True
+        invalid_at = getattr(edge, "invalid_at", None)
+        if invalid_at is not None:
+            if invalid_at.tzinfo is None:
+                invalid_at = invalid_at.replace(tzinfo=timezone.utc)
+            return invalid_at <= now
+        return False
+
+    @staticmethod
+    def _recency_factor(edge, now: datetime) -> float:
+        """0.5 ** (age / half_life) based on valid_at (fallback created_at)."""
+        ts = getattr(edge, "valid_at", None) or getattr(edge, "created_at", None)
+        if ts is None:
+            return 0.0
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        age_days = max((now - ts).total_seconds() / 86400.0, 0.0)
+        half_life = max(settings.SEARCH_RECENCY_HALF_LIFE_DAYS, 1e-6)
+        return 0.5 ** (age_days / half_life)
+
     async def search(
         self,
         user_id: str,
         query: str,
         limit: int = 10,
         center_node_uuid: Optional[str] = None,
+        include_invalid: Optional[bool] = None,
+        search_mode: str = "hybrid",
     ) -> List[MemoryHit]:
         """
         Search for relevant memories (edges) in the knowledge graph.
 
         Uses COMBINED_HYBRID_SEARCH_CROSS_ENCODER when USE_RERANKER=true,
         falls back to COMBINED_HYBRID_SEARCH_RRF otherwise or on reranker failure.
-        Results are filtered by SEARCH_MIN_SCORE threshold.
+        search_mode="node_distance" ranks facts by graph distance to a center node
+        (given, or the user's most connected entity) — HippoRAG-style locality.
+        Stale facts (invalidated/expired) are dropped unless include_invalid,
+        results are re-ordered with a recency blend (SEARCH_RECENCY_WEIGHT)
+        and filtered by SEARCH_MIN_SCORE.
         """
         try:
+            import asyncio
+
+            now = datetime.now(timezone.utc)
+            exclude_invalid = (
+                settings.SEARCH_EXCLUDE_INVALID
+                if include_invalid is None
+                else not include_invalid
+            )
+            # Over-fetch so that filtering stale facts still leaves `limit` results
+            fetch_limit = limit * 2 if exclude_invalid else limit
             use_reranker = settings.USE_RERANKER
             logger.info(
                 f"Searching for user {user_id}: {query} "
-                f"(limit={limit}, reranker={'ON' if use_reranker else 'OFF'})"
+                f"(limit={limit}, mode={search_mode}, reranker={'ON' if use_reranker else 'OFF'})"
             )
 
             results = []
             reranker_scores = []
 
+            if search_mode == "node_distance":
+                if not center_node_uuid:
+                    center_node_uuid = await self._get_center_node_uuid(user_id)
+                if center_node_uuid:
+                    search_config = copy.deepcopy(EDGE_HYBRID_SEARCH_NODE_DISTANCE)
+                    search_config.limit = fetch_limit
+                    search_results = await self.client.search_(
+                        query=query,
+                        center_node_uuid=center_node_uuid,
+                        config=search_config,
+                        group_ids=[user_id],
+                    )
+                    results = search_results.edges
+                    use_reranker = None  # handled, skip other strategies
+                    logger.info(
+                        f"✓ Node-distance search got {len(results)} results (center={center_node_uuid})"
+                    )
+                else:
+                    logger.info("No center node for node_distance search, using hybrid")
+
             if use_reranker:
                 # Attempt cross-encoder reranker search
                 search_config = copy.deepcopy(COMBINED_HYBRID_SEARCH_CROSS_ENCODER)
-                search_config.limit = limit
+                search_config.limit = fetch_limit
                 try:
-                    import asyncio
                     search_results = await asyncio.wait_for(
                         self.client.search_(
                             query=query,
@@ -1938,10 +2165,10 @@ class GraphitiWrapper:
                     )
                     use_reranker = False  # Fall through to RRF below
 
-            if not use_reranker:
+            if use_reranker is False:
                 # RRF search (no cross-encoder, uses reciprocal rank fusion)
                 search_config = copy.deepcopy(COMBINED_HYBRID_SEARCH_RRF)
-                search_config.limit = limit
+                search_config.limit = fetch_limit
                 search_results = await self.client.search_(
                     query=query,
                     center_node_uuid=center_node_uuid,
@@ -1951,9 +2178,38 @@ class GraphitiWrapper:
                 results = search_results.edges
                 logger.info(f"✓ RRF search got {len(results)} results")
 
+            # Pair each edge with its score before any filtering so they stay aligned.
+            # Without reranker scores, keep the engine's ranking as a rank-based score.
+            total = len(results)
+            scored = []
+            for i, result in enumerate(results):
+                if i < len(reranker_scores):
+                    score = reranker_scores[i]
+                    base = score
+                else:
+                    score = getattr(result, "score", 1.0)
+                    base = 1.0 - (i / total) if total else 1.0
+                scored.append((result, score, base))
+
+            if exclude_invalid:
+                before = len(scored)
+                scored = [s for s in scored if not self._is_invalid_fact(s[0], now)]
+                if before != len(scored):
+                    logger.info(f"Temporal filter: {before} -> {len(scored)} facts")
+
+            weight = settings.SEARCH_RECENCY_WEIGHT
+            if weight > 0 and scored:
+                scored.sort(
+                    key=lambda s: (1 - weight) * s[2]
+                    + weight * self._recency_factor(s[0], now),
+                    reverse=True,
+                )
+
+            scored = scored[:limit]
+
             # Collect episode UUIDs from results to fetch file_name metadata
             episode_uuids = set()
-            for result in results[:limit]:
+            for result, _, _ in scored:
                 ep_list = getattr(result, "episodes", [])
                 if ep_list and len(ep_list) > 0:
                     episode_uuids.add(ep_list[0])
@@ -1975,11 +2231,10 @@ class GraphitiWrapper:
 
             # Convert to MemoryHit format with file_name in metadata
             hits = []
-            for i, result in enumerate(results[:limit]):
+            for result, score, _ in scored:
                 ep_list = getattr(result, "episodes", [])
                 ep_uuid = ep_list[0] if ep_list and len(ep_list) > 0 else None
                 file_name = episode_file_map.get(ep_uuid) if ep_uuid else None
-                score = reranker_scores[i] if i < len(reranker_scores) else getattr(result, "score", 1.0)
 
                 hit = MemoryHit(
                     fact=result.fact,
@@ -2048,11 +2303,8 @@ class GraphitiWrapper:
 
             # Totals for this group only
             totals_query = """
-            MATCH (n:Entity {group_id: $g})
-            WITH count(n) AS total_nodes
-            MATCH ()-[r:RELATES_TO]->()
-            WHERE r.group_id = $g
-            RETURN total_nodes, count(r) AS total_edges
+            RETURN COUNT { (n:Entity {group_id: $g}) } AS total_nodes,
+                   COUNT { ()-[r:RELATES_TO {group_id: $g}]->() } AS total_edges
             """
             totals_result = await driver.execute_query(
                 totals_query, g=group_id, database_="neo4j"
@@ -2153,16 +2405,36 @@ class GraphitiWrapper:
             Text summary
         """
         try:
-            # Search for user-related facts
-            results = await self.search(user_id, f"facts about {user_id}", limit=10)
+            # Prefer community summaries (GraphRAG-style global view), else the
+            # summaries of the most connected entities. No LLM call needed.
+            communities = await self.get_communities(user_id, limit=10)
+            if communities:
+                summary_parts = [f"Knowledge summary for {user_id} (by topic):"]
+                for i, c in enumerate(communities, 1):
+                    text = (c["summary"] or "").strip().replace("\n", " ")
+                    summary_parts.append(
+                        f"{i}. {c['name']} ({c['members']} entities): {text[:400]}"
+                    )
+                return "\n".join(summary_parts)
 
-            if not results:
+            query = """
+            MATCH (n:Entity {group_id: $g})
+            WHERE n.summary IS NOT NULL AND n.summary <> ''
+            WITH n, COUNT{(n)-[:RELATES_TO]-(:Entity)} AS degree
+            ORDER BY degree DESC
+            LIMIT 10
+            RETURN n.name AS name, n.summary AS summary, degree
+            """
+            result = await self.client.driver.execute_query(
+                query, g=user_id, database_="neo4j"
+            )
+            if not result.records:
                 return f"No information found for user {user_id}"
 
-            # Build summary from top facts
             summary_parts = [f"Knowledge summary for {user_id}:"]
-            for i, hit in enumerate(results[:5], 1):
-                summary_parts.append(f"{i}. {hit.fact}")
+            for i, record in enumerate(result.records, 1):
+                text = (record["summary"] or "").strip().replace("\n", " ")
+                summary_parts.append(f"{i}. {record['name']}: {text[:300]}")
 
             return "\n".join(summary_parts)
 
@@ -2183,59 +2455,44 @@ class GraphitiWrapper:
         try:
             logger.info(f"Deleting all data for user: {user_id}")
 
-            # Strategy:
-            # 1. Find and delete all episodes for this user (by name pattern)
-            # 2. Delete nodes that are only connected to these episodes
-            # 3. Delete edges that reference deleted nodes
-
-            # Get Neo4j driver from graphiti client
+            # Tenancy is the exact group_id: episodes, entities and communities all
+            # carry it. Name prefixes are NOT used ("ETH" must not touch "ETH_USDT",
+            # "35145416" must not touch "35145416-code").
             driver = self.client.driver
 
-            # Cypher query to delete episodes and their associated data
             query = """
-            // Find all episodes for this user
-            MATCH (e:Episodic)
-            WHERE e.name STARTS WITH $user_prefix
-            
-            // Match connected nodes
-            OPTIONAL MATCH (e)--(n)
-            
-            // Use DETACH DELETE to automatically remove all relationships
-            DETACH DELETE e, n
-            
-            RETURN count(DISTINCT e) as episodes_deleted
-            """
-
-            # Execute deletion by episode connection
-            result = await driver.execute_query(
-                query, user_prefix=f"{user_id}_", database_="neo4j"
-            )
-
-            episodes_deleted = (
-                result.records[0]["episodes_deleted"] if result.records else 0
-            )
-
-            # Fallback: Delete by group_id if it exists (handles orphaned nodes)
-            # Graphiti often uses group_id for tenancy
-            cleanup_query = """
             MATCH (n)
-            WHERE n.group_id = $user_id
+            WHERE (n:Episodic OR n:Entity OR n:Community) AND n.group_id = $user_id
             DETACH DELETE n
             RETURN count(n) as nodes_deleted
             """
-
-            cleanup_result = await driver.execute_query(
-                cleanup_query, user_id=user_id, database_="neo4j"
+            result = await driver.execute_query(
+                query, user_id=user_id, database_="neo4j"
             )
+            nodes_deleted = result.records[0]["nodes_deleted"] if result.records else 0
 
-            nodes_deleted = (
-                cleanup_result.records[0]["nodes_deleted"]
-                if cleanup_result.records
+            pending_query = """
+            MATCH (p:PendingEpisode {user_id: $user_id})
+            DETACH DELETE p
+            RETURN count(p) as pending_deleted
+            """
+            pending_result = await driver.execute_query(
+                pending_query, user_id=user_id, database_="neo4j"
+            )
+            pending_deleted = (
+                pending_result.records[0]["pending_deleted"]
+                if pending_result.records
                 else 0
             )
 
+            await driver.execute_query(
+                "MATCH (u:User {id: $user_id}) DETACH DELETE u",
+                user_id=user_id,
+                database_="neo4j",
+            )
+
             logger.info(
-                f"Deleted {episodes_deleted} episodes and {nodes_deleted} orphaned nodes for user {user_id}"
+                f"Deleted {nodes_deleted} nodes and {pending_deleted} pending episodes for user {user_id}"
             )
 
             return True
@@ -2253,9 +2510,9 @@ class GraphitiWrapper:
             driver = self.client.driver
 
             query = """
-            CALL {
-                MATCH (e:Episodic)
-                WHERE e.name STARTS WITH $user_prefix AND e.file_name IS NOT NULL
+            CALL () {
+                MATCH (e:Episodic {group_id: $user_id})
+                WHERE e.file_name IS NOT NULL
                 RETURN e.file_name as file_name, count(e) as chunk_count, max(e.created_at) as last_modified
                 
                 UNION ALL
@@ -2270,7 +2527,6 @@ class GraphitiWrapper:
             """
 
             params = {
-                "user_prefix": f"{user_id}_",
                 "user_id": user_id,
             }
 
@@ -2304,10 +2560,10 @@ class GraphitiWrapper:
 
             # Use CALL subquery to properly wrap UNION and apply LIMIT to the final result
             query = """
-            CALL {
+            CALL () {
                 // 1. Get processed episodes
-                MATCH (e:Episodic)
-                WHERE e.name STARTS WITH $user_prefix AND e.file_name IS NULL
+                MATCH (e:Episodic {group_id: $user_id})
+                WHERE e.file_name IS NULL
                 RETURN e.uuid as uuid, e.name as name, toString(e.created_at) as created_at, 
                        e.source_description as source, 
                        coalesce(e.content, e.episode_body, "") as content,
@@ -2321,14 +2577,13 @@ class GraphitiWrapper:
                 RETURN p.uuid as uuid, "pending_" + p.uuid as name, toString(p.created_at) as created_at,
                        p.source as source,
                        p.content as content,
-                       'pending' as status
+                       CASE WHEN p.status = 'failed' THEN 'failed' ELSE 'pending' END as status
             }
             RETURN uuid, name, created_at, source, content, status
             ORDER BY created_at DESC
             """
 
             params = {
-                "user_prefix": f"{user_id}_",
                 "user_id": user_id,
                 "database_": "neo4j",
             }
@@ -2384,7 +2639,7 @@ class GraphitiWrapper:
             query1 = """
             // Find all episodes matching file_name and user_id
             MATCH (e:Episodic)
-            WHERE e.file_name = $file_name AND (e.name STARTS WITH $user_prefix OR e.group_id = $user_id)
+            WHERE e.file_name = $file_name AND e.group_id = $user_id
             
             // Collect uuid for logging
             WITH e, e.uuid as uuid
@@ -2413,7 +2668,6 @@ class GraphitiWrapper:
             result1 = await driver.execute_query(
                 query1,
                 user_id=user_id,
-                user_prefix=f"{user_id}_",
                 file_name=file_name,
                 database_="neo4j",
             )
@@ -2424,7 +2678,7 @@ class GraphitiWrapper:
 
             # Step 2: Cleanup any orphaned RELATES_TO relationships
             query2 = """
-            MATCH ()-[r:RELATES_TO]->()
+            MATCH ()-[r:RELATES_TO {group_id: $user_id}]->()
             WITH r, startNode(r) as start_entity, endNode(r) as end_entity
             OPTIONAL MATCH (start_entity)<-[:MENTIONS]-(e1:Episodic)
             OPTIONAL MATCH (end_entity)<-[:MENTIONS]-(e2:Episodic)
@@ -2434,7 +2688,9 @@ class GraphitiWrapper:
             RETURN count(r) as deleted_edges
             """
 
-            result2 = await driver.execute_query(query2, database_="neo4j")
+            result2 = await driver.execute_query(
+                query2, user_id=user_id, database_="neo4j"
+            )
 
             deleted_edges = (
                 result2.records[0]["deleted_edges"] if result2.records else 0
@@ -2540,6 +2796,319 @@ class GraphitiWrapper:
         except Exception as e:
             logger.error(f"Error deleting episode {episode_uuid}: {e}")
             return False
+
+    # ------------------------------------------------------------------
+    # Maintenance
+    # ------------------------------------------------------------------
+
+    async def run_startup_maintenance(self):
+        """
+        Idempotent startup tasks: create missing graphiti indices (IF NOT EXISTS,
+        never drops) and repair legacy fallback edges. Never raises.
+        """
+        try:
+            await self.client.build_indices_and_constraints()
+            logger.info("Graphiti indices and constraints ensured")
+        except Exception as e:
+            logger.error(f"Failed to build indices: {e}")
+        await self.fix_sentinel_expired_at()
+
+    async def fix_sentinel_expired_at(self) -> int:
+        """
+        Older fallback CONTENT_RAW edges were written with expired_at=9999-12-31.
+        In graphiti a non-null expired_at means "superseded", so clear it.
+        """
+        try:
+            query = """
+            MATCH ()-[r:RELATES_TO]->()
+            WHERE r.expired_at IS NOT NULL AND r.expired_at.year = 9999
+            SET r.expired_at = null
+            RETURN count(r) AS fixed
+            """
+            result = await self.client.driver.execute_query(query, database_="neo4j")
+            fixed = result.records[0]["fixed"] if result.records else 0
+            if fixed:
+                logger.info(f"Cleared sentinel expired_at on {fixed} fallback edges")
+            return fixed
+        except Exception as e:
+            logger.error(f"Failed to fix sentinel expired_at: {e}")
+            return 0
+
+    async def cleanup_orphan_entities(self, delete: bool = False) -> int:
+        """Entities no episode mentions. Reports by default; deletes only if asked."""
+        count_query = """
+        MATCH (n:Entity)
+        WHERE NOT EXISTS { (:Episodic)-[:MENTIONS]->(n) }
+        RETURN count(n) AS orphans
+        """
+        result = await self.client.driver.execute_query(count_query, database_="neo4j")
+        orphans = result.records[0]["orphans"] if result.records else 0
+        if orphans and delete:
+            delete_query = """
+            MATCH (n:Entity)
+            WHERE NOT EXISTS { (:Episodic)-[:MENTIONS]->(n) }
+            DETACH DELETE n
+            """
+            await self.client.driver.execute_query(delete_query, database_="neo4j")
+            logger.info(f"Deleted {orphans} orphan entities")
+        elif orphans:
+            logger.info(f"Found {orphans} orphan entities (not deleted)")
+        return orphans
+
+    async def groups_needing_communities(self) -> List[str]:
+        """Groups with episodes newer than their latest community build."""
+        query = """
+        MATCH (e:Episodic)
+        WHERE e.group_id IS NOT NULL
+        WITH e.group_id AS g, max(e.created_at) AS last_episode
+        OPTIONAL MATCH (c:Community {group_id: g})
+        WITH g, last_episode, max(c.created_at) AS last_build
+        WHERE last_build IS NULL OR last_episode > last_build
+        RETURN g
+        """
+        result = await self.client.driver.execute_query(query, database_="neo4j")
+        return [r["g"] for r in result.records]
+
+    async def consolidate(self) -> Dict[str, Any]:
+        """Nightly "sleep-time" consolidation. Non-destructive unless configured."""
+        report: Dict[str, Any] = {}
+        report["sentinel_fixed"] = await self.fix_sentinel_expired_at()
+        try:
+            report["orphan_entities"] = await self.cleanup_orphan_entities(
+                delete=settings.CONSOLIDATION_DELETE_ORPHANS
+            )
+        except Exception as e:
+            logger.error(f"Orphan check failed: {e}")
+        if settings.CONSOLIDATION_BUILD_COMMUNITIES:
+            rebuilt = []
+            for group_id in await self.groups_needing_communities():
+                job = await self.build_communities_for_user(group_id)
+                if job.get("status") == "done":
+                    rebuilt.append(group_id)
+            report["communities_rebuilt"] = rebuilt
+        logger.info(f"Consolidation report: {report}")
+        return report
+
+    # ------------------------------------------------------------------
+    # Communities (GraphRAG-style topic clusters with summaries)
+    # ------------------------------------------------------------------
+
+    def get_community_job(self, user_id: str) -> Dict[str, Any]:
+        jobs = getattr(self, "_community_jobs", {})
+        return jobs.get(user_id, {"status": "idle"})
+
+    async def build_communities_for_user(self, user_id: str) -> Dict[str, Any]:
+        """
+        Rebuild communities for one group (graphiti removes only this group's
+        Community nodes). LLM-heavy: one summary per merge step.
+        """
+        if getattr(self, "_community_jobs", None) is None:
+            self._community_jobs = {}
+        job = self._community_jobs.get(user_id)
+        if job and job.get("status") == "running":
+            return job
+        job = {
+            "status": "running",
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "finished_at": None,
+            "error": None,
+            "communities": None,
+        }
+        self._community_jobs[user_id] = job
+        try:
+            nodes, _ = await self.client.build_communities(group_ids=[user_id])
+            job.update(status="done", communities=len(nodes))
+            logger.info(f"Built {len(nodes)} communities for {user_id}")
+        except Exception as e:
+            job.update(status="error", error=str(e)[:500])
+            logger.error(f"Community build failed for {user_id}: {e}", exc_info=True)
+        job["finished_at"] = datetime.now(timezone.utc).isoformat()
+        return job
+
+    async def get_communities(
+        self, user_id: str, limit: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        query = """
+        MATCH (c:Community {group_id: $g})
+        WITH c, COUNT { (c)-[:HAS_MEMBER]->(:Entity) } AS members
+        RETURN c.uuid AS uuid, c.name AS name, c.summary AS summary, members
+        ORDER BY members DESC, c.uuid
+        """
+        params: Dict[str, Any] = {"g": user_id}
+        if limit:
+            query += "\nLIMIT $limit"
+            params["limit"] = limit
+        result = await self.client.driver.execute_query(
+            query, **params, database_="neo4j"
+        )
+        return [
+            {
+                "uuid": r["uuid"],
+                "name": r["name"] or "",
+                "summary": r["summary"] or "",
+                "members": int(r["members"]),
+            }
+            for r in result.records
+        ]
+
+    async def get_community_members_graph(
+        self, user_id: str, community_uuid: str, limit: int = 300
+    ) -> Dict[str, Any]:
+        """Members of one community in the same format as get_user_graph."""
+        driver = self.client.driver
+        totals = await driver.execute_query(
+            """
+            MATCH (c:Community {uuid: $c, group_id: $g})
+            RETURN COUNT { (c)-[:HAS_MEMBER]->(:Entity) } AS total_nodes
+            """,
+            c=community_uuid,
+            g=user_id,
+            database_="neo4j",
+        )
+        total_nodes = int(totals.records[0]["total_nodes"]) if totals.records else 0
+
+        top = await driver.execute_query(
+            """
+            MATCH (c:Community {uuid: $c, group_id: $g})-[:HAS_MEMBER]->(n:Entity)
+            WITH n, COUNT{(n)-[:RELATES_TO]-(:Entity)} AS degree
+            ORDER BY degree DESC, n.uuid
+            LIMIT $limit
+            RETURN n.uuid AS uuid, n.name AS name, left(n.summary, 200) AS summary,
+                   toString(n.created_at) AS created_at, degree
+            """,
+            c=community_uuid,
+            g=user_id,
+            limit=limit,
+            database_="neo4j",
+        )
+        nodes = []
+        ids = []
+        for r in top.records:
+            ids.append(r["uuid"])
+            nodes.append(
+                {
+                    "data": {
+                        "id": r["uuid"],
+                        "label": r["name"] or "Unknown",
+                        "summary": r["summary"] or "",
+                        "created_at": r["created_at"],
+                        "degree": int(r["degree"]),
+                    }
+                }
+            )
+
+        edges = []
+        if ids:
+            rel = await driver.execute_query(
+                """
+                MATCH (a:Entity)-[r:RELATES_TO]->(b:Entity)
+                WHERE a.uuid IN $ids AND b.uuid IN $ids AND a.uuid <> b.uuid AND r.group_id = $g
+                RETURN a.uuid AS source, b.uuid AS target, r.uuid AS uuid,
+                       left(r.fact, 100) AS fact, r.name AS name,
+                       (r.invalid_at IS NOT NULL OR (r.expired_at IS NOT NULL AND r.expired_at.year < 9999)) AS invalid
+                LIMIT $edge_limit
+                """,
+                ids=ids,
+                g=user_id,
+                edge_limit=limit * settings.GRAPH_MAX_EDGES_FACTOR,
+                database_="neo4j",
+            )
+            for r in rel.records:
+                edges.append(
+                    {
+                        "data": {
+                            "id": r["uuid"],
+                            "source": r["source"],
+                            "target": r["target"],
+                            "label": r["fact"] or "",
+                            "name": r["name"],
+                            "invalid": bool(r["invalid"]),
+                        }
+                    }
+                )
+
+        return {
+            "nodes": nodes,
+            "edges": edges,
+            "total_nodes": total_nodes,
+            "total_edges": len(edges),
+            "truncated": total_nodes > limit,
+            "limit": limit,
+        }
+
+    # ------------------------------------------------------------------
+    # Bulk ingestion (files / imports)
+    # ------------------------------------------------------------------
+
+    async def add_episodes_bulk(
+        self, user_id: str, items: List[Dict[str, Any]], pending_uuids: List[str]
+    ) -> List[str]:
+        """
+        Ingest many episodes in one graphiti add_episode_bulk call (shared
+        extraction/dedup passes — far fewer LLM calls than one-by-one).
+        On failure the PendingEpisodes stay queued and the retry loop
+        processes them individually.
+        """
+        import asyncio
+        from graphiti_core.utils.bulk_utils import RawEpisode
+
+        if getattr(self, "_episode_semaphore", None) is None:
+            self._episode_semaphore = asyncio.Semaphore(settings.EPISODE_CONCURRENCY)
+
+        now = datetime.now(timezone.utc)
+        raws = []
+        file_rows = []
+        for i, item in enumerate(items):
+            metadata = item.get("metadata") or {}
+            name = f"{user_id}_{(now + timedelta(microseconds=i)).isoformat()}"
+            source = metadata.get("source", "User Input")
+            file_name = metadata.get("file_name")
+            role = metadata.get("role", "user")
+            description = (
+                f"{source} (file: {file_name})" if file_name else f"{source} ({role})"
+            )
+            raws.append(
+                RawEpisode(
+                    name=name,
+                    content=item["text"],
+                    source_description=description,
+                    source=EpisodeType.text,
+                    reference_time=now,
+                )
+            )
+            if file_name:
+                file_rows.append({"name": name, "file_name": file_name})
+
+        tracked = [u for u in pending_uuids if u]
+        self._inflight.update(tracked)
+        try:
+            async with self._episode_semaphore:
+                logger.info(f"[BULK_START] user={user_id}, episodes={len(raws)}")
+                await self.client.add_episode_bulk(
+                    raws,
+                    group_id=user_id,
+                    custom_extraction_instructions=settings.CUSTOM_EXTRACTION_INSTRUCTIONS
+                    or None,
+                )
+        finally:
+            self._inflight.difference_update(tracked)
+
+        if file_rows:
+            await self.client.driver.execute_query(
+                """
+                UNWIND $rows AS row
+                MATCH (e:Episodic {name: row.name, group_id: $g})
+                SET e.file_name = row.file_name
+                """,
+                rows=file_rows,
+                g=user_id,
+                database_="neo4j",
+            )
+        for pending_uuid in pending_uuids:
+            if pending_uuid:
+                await self.delete_pending_episode(user_id, "", pending_uuid)
+        logger.info(f"[BULK_DONE] user={user_id}, episodes={len(raws)}")
+        return [r.name for r in raws]
 
     async def close(self):
         """Close the Graphiti client connection"""

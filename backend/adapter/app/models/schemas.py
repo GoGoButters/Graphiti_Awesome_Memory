@@ -13,10 +13,30 @@ class MemoryAppendResponse(BaseModel):
     id: str
     created_ts: datetime
 
+class MemoryBulkItem(BaseModel):
+    text: str
+    metadata: Optional[Dict[str, Any]] = {}
+
+class MemoryBulkAppendRequest(BaseModel):
+    user_id: str
+    items: List[MemoryBulkItem] = Field(..., min_length=1, max_length=200)
+
+class MemoryBulkAppendResponse(BaseModel):
+    ok: bool
+    accepted: int
+    skipped: int
+    created_ts: datetime
+
 class MemoryQueryRequest(BaseModel):
     user_id: str
     query: str
     limit: int = 10
+    # None = server default (SEARCH_EXCLUDE_INVALID); True returns superseded facts too
+    include_invalid: Optional[bool] = None
+    # "node_distance" ranks facts by graph proximity to center_node_uuid
+    # (default center: the user's most connected entity)
+    search_mode: Literal["hybrid", "node_distance"] = "hybrid"
+    center_node_uuid: Optional[str] = None
 
 class MemoryHit(BaseModel):
     fact: str  # The relationship fact from Graphiti

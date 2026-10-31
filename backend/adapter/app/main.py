@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 from app.core.config import settings
 from app.api.v1 import memory, admin
+from datetime import datetime, timedelta, timezone
 import asyncio
 import logging
 
@@ -17,43 +18,80 @@ logger = logging.getLogger(__name__)
 from app.services.graphiti_client import graphiti_client
 
 
+async def _retry_episode(ep: dict):
+    metadata = {"source": ep.get("source") or "User Input", "role": "user", "retry": True}
+    if ep.get("file_name"):
+        metadata["file_name"] = ep["file_name"]
+    try:
+        await graphiti_client.add_episode(
+            user_id=ep["user_id"],
+            text=ep["content"],
+            metadata=metadata,
+            pending_uuid=ep["uuid"],
+        )
+    except Exception as e:
+        logger.error(f"Retry of episode {ep.get('uuid')} failed: {e}")
+
+
 async def retry_pending_episodes_loop():
     """
-    Background task to retry stuck pending episodes every 30 minutes.
+    Retry PendingEpisodes waiting longer than EPISODE_RETRY_AFTER_MINUTES.
+    Each retry marks the node 'processing' (attempts+1), so an episode is never
+    picked twice while running; after EPISODE_MAX_ATTEMPTS it becomes 'failed'.
     """
+    # Wait for startup
+    await asyncio.sleep(60)
     while True:
         try:
-            # Wait for startup
-            await asyncio.sleep(60)
-
             logger.info("Checking for stuck pending episodes...")
-            stuck_episodes = await graphiti_client.get_stuck_pending_episodes(minutes=30)
+            stuck_episodes = await graphiti_client.get_stuck_pending_episodes(
+                minutes=settings.EPISODE_RETRY_AFTER_MINUTES
+            )
 
             if stuck_episodes:
                 logger.info(f"Found {len(stuck_episodes)} stuck episodes. Retrying...")
                 for ep in stuck_episodes:
                     logger.info(f"Retrying episode {ep.get('uuid')} for user {ep.get('user_id')}")
-                    asyncio.create_task(
-                        graphiti_client.add_episode(
-                            user_id=ep["user_id"],
-                            text=ep["content"],
-                            metadata={"source": ep["source"], "role": "user", "retry": True}
-                        )
-                    )
+                    asyncio.create_task(_retry_episode(ep))
             else:
                 logger.info("No stuck episodes found.")
 
         except Exception as e:
             logger.error(f"Error in retry loop: {e}")
 
-        # Wait 30 minutes before next check
-        await asyncio.sleep(30 * 60)
+        await asyncio.sleep(settings.EPISODE_RETRY_AFTER_MINUTES * 60)
+
+
+def _seconds_until_hour_utc(hour: int) -> float:
+    now = datetime.now(timezone.utc)
+    target = now.replace(hour=hour % 24, minute=0, second=0, microsecond=0)
+    if target <= now:
+        target += timedelta(days=1)
+    return (target - now).total_seconds()
+
+
+async def consolidation_loop():
+    """Nightly sleep-time consolidation (see GraphitiWrapper.consolidate)."""
+    while True:
+        await asyncio.sleep(_seconds_until_hour_utc(settings.CONSOLIDATION_HOUR_UTC))
+        try:
+            await graphiti_client.consolidate()
+        except Exception as e:
+            logger.error(f"Consolidation failed: {e}")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    asyncio.create_task(retry_pending_episodes_loop())
+    # Startup maintenance runs in background so the API is available immediately
+    background = [
+        asyncio.create_task(graphiti_client.run_startup_maintenance()),
+        asyncio.create_task(retry_pending_episodes_loop()),
+    ]
+    if settings.CONSOLIDATION_ENABLED:
+        background.append(asyncio.create_task(consolidation_loop()))
     yield
+    for task in background:
+        task.cancel()
 
 
 app = FastAPI(

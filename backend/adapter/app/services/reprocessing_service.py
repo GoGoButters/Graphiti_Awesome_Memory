@@ -26,8 +26,7 @@ class ReprocessingService:
             
             # Get all episodes for this user
             query = """
-            MATCH (e:Episodic)
-            WHERE e.name STARTS WITH $user_prefix
+            MATCH (e:Episodic {group_id: $user_id})
             RETURN e.uuid as uuid, e.content as content, e.created_at as created_at, 
                    e.source as source, e.file_name as file_name
             ORDER BY e.created_at ASC
@@ -35,7 +34,7 @@ class ReprocessingService:
             
             result = await driver.execute_query(
                 query,
-                user_prefix=f"{user_id}_",
+                user_id=user_id,
                 database_="neo4j"
             )
             
@@ -110,9 +109,8 @@ class ReprocessingService:
             
             # Find and delete episodes without MENTIONS relationships
             cleanup_query = """
-            MATCH (e:Episodic)
-            WHERE e.name STARTS WITH $user_prefix
-            AND NOT EXISTS {
+            MATCH (e:Episodic {group_id: $user_id})
+            WHERE NOT EXISTS {
                 MATCH (e)-[:MENTIONS]->(:Entity)
             }
             WITH e
@@ -122,7 +120,7 @@ class ReprocessingService:
             
             result = await driver.execute_query(
                 cleanup_query,
-                user_prefix=f"{user_id}_",
+                user_id=user_id,
                 database_="neo4j"
             )
             
