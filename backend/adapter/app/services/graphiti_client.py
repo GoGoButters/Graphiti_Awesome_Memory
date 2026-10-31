@@ -29,11 +29,65 @@ from graphiti_core.search.search_config_recipes import (
     EDGE_HYBRID_SEARCH_NODE_DISTANCE,
 )
 from graphiti_core.cross_encoder.client import CrossEncoderClient
+from graphiti_core.utils.maintenance import community_operations as _community_ops
 
 from app.core.config import settings
 from app.models.schemas import MemoryHit
 
 logger = logging.getLogger(__name__)
+
+LABEL_PROPAGATION_MAX_ROUNDS = 100
+
+
+def _bounded_label_propagation(projection) -> list[list[str]]:
+    """
+    Replacement for graphiti's label_propagation. The upstream version updates
+    all nodes synchronously and loops `while True` until nothing changes: two
+    entities linked by several edges swap labels forever, and since the loop is
+    synchronous it blocks the whole event loop (adapter stops answering).
+    Same rules, but nodes update in place (asynchronous LPA, converges in
+    practice) and the number of rounds is capped.
+    """
+    from collections import defaultdict
+
+    community_map = {uuid: i for i, uuid in enumerate(projection.keys())}
+
+    for _ in range(LABEL_PROPAGATION_MAX_ROUNDS):
+        changed = False
+        for uuid, neighbors in projection.items():
+            curr_community = community_map[uuid]
+            candidates: dict[int, int] = defaultdict(int)
+            for neighbor in neighbors:
+                neighbor_community = community_map.get(neighbor.node_uuid)
+                if neighbor_community is not None:
+                    candidates[neighbor_community] += neighbor.edge_count
+            ranked = sorted(
+                ((count, community) for community, count in candidates.items()),
+                reverse=True,
+            )
+            rank, candidate = ranked[0] if ranked else (0, -1)
+            if candidate != -1 and rank > 1:
+                new_community = candidate
+            else:
+                new_community = max(candidate, curr_community)
+            if new_community != curr_community:
+                community_map[uuid] = new_community
+                changed = True
+        if not changed:
+            break
+    else:
+        logger.warning(
+            f"Label propagation did not converge in {LABEL_PROPAGATION_MAX_ROUNDS} rounds, using current clusters"
+        )
+
+    clusters: dict[int, list[str]] = defaultdict(list)
+    for uuid, community in community_map.items():
+        clusters[community].append(uuid)
+    return list(clusters.values())
+
+
+# get_community_clusters() resolves label_propagation from the module globals
+_community_ops.label_propagation = _bounded_label_propagation
 
 import json
 import re

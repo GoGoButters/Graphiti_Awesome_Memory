@@ -223,3 +223,39 @@ async def test_community_endpoints(mock_graphiti, override_dependencies):
     assert build.json() == {"status": "started"}
     assert members.status_code == 200
     mock_graphiti.get_community_members_graph.assert_awaited_once_with("u", "c1", limit=50)
+
+
+# --- community clustering ---------------------------------------------------
+
+def test_label_propagation_terminates_on_oscillating_pair():
+    """Upstream synchronous LPA swaps labels of a strongly linked pair forever."""
+    from graphiti_core.utils.maintenance import community_operations
+    from graphiti_core.utils.maintenance.community_operations import Neighbor
+
+    projection = {
+        "a": [Neighbor(node_uuid="b", edge_count=2)],
+        "b": [Neighbor(node_uuid="a", edge_count=2)],
+        "c": [Neighbor(node_uuid="d", edge_count=3)],
+        "d": [Neighbor(node_uuid="c", edge_count=3)],
+        "e": [],
+    }
+    clusters = community_operations.label_propagation(projection)
+    as_sets = sorted(sorted(c) for c in clusters)
+    assert as_sets == [["a", "b"], ["c", "d"], ["e"]]
+
+
+def test_label_propagation_bounded_on_random_graph():
+    import random
+    from graphiti_core.utils.maintenance import community_operations
+    from graphiti_core.utils.maintenance.community_operations import Neighbor
+
+    rng = random.Random(42)
+    nodes = [f"n{i}" for i in range(300)]
+    projection = {n: [] for n in nodes}
+    for _ in range(900):
+        a, b = rng.sample(nodes, 2)
+        weight = rng.randint(1, 4)
+        projection[a].append(Neighbor(node_uuid=b, edge_count=weight))
+        projection[b].append(Neighbor(node_uuid=a, edge_count=weight))
+    clusters = community_operations.label_propagation(projection)
+    assert sorted(u for c in clusters for u in c) == sorted(nodes)

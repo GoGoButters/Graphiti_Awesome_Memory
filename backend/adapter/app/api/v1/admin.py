@@ -49,8 +49,8 @@ async def get_users(username: str = Depends(verify_jwt)):
         import logging
 
         logging.getLogger("app.api.v1.admin").error(f"Error getting users: {e}")
-        # Fallback to empty list if query fails
-        return AdminUsersResponse(users=[], total=0)
+        # Surface the failure: an empty list looks like "all users are gone"
+        raise HTTPException(status_code=500, detail=f"Failed to load users: {e}")
 
 
 @router.get("/users/{user_id}/graph")

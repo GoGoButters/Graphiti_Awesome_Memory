@@ -17,8 +17,17 @@ export default function Dashboard() {
     const [restoreUserExists, setRestoreUserExists] = useState(false);
     const [restoreNewUserId, setRestoreNewUserId] = useState('');
 
+    const [usersError, setUsersError] = useState<string | null>(null);
+
     const fetchUsers = () => {
-        apiClient.get('/admin/users').then(res => setStats(res.data));
+        setUsersError(null);
+        apiClient
+            .get('/admin/users', { timeout: 15000 })
+            .then(res => setStats(res.data))
+            .catch(err => {
+                const detail = err?.response?.data?.detail || (err?.code === 'ECONNABORTED' ? 'сервер не ответил за 15 с' : err?.message);
+                setUsersError(`Не удалось загрузить пользователей: ${detail}`);
+            });
     };
 
     useEffect(() => {
@@ -160,6 +169,13 @@ export default function Dashboard() {
                     <p className="text-2xl sm:text-3xl font-bold dark:text-white">{stats?.total || 0}</p>
                 </div>
             </div>
+
+            {usersError && (
+                <div className="mb-4 p-3 rounded border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20 text-sm text-red-700 dark:text-red-300 flex items-center justify-between gap-3">
+                    <span>{usersError}</span>
+                    <button onClick={fetchUsers} className="underline whitespace-nowrap">Повторить</button>
+                </div>
+            )}
 
             <div className="bg-white dark:bg-gray-800 rounded shadow dark:shadow-gray-700 overflow-x-auto">
                 <table className="min-w-full">
