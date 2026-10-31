@@ -95,6 +95,8 @@ class BackupService:
         RETURN {
             uuid: r.uuid,
             type: type(r),
+            name: r.name,
+            group_id: r.group_id,
             source_uuid: entity1.uuid,
             target_uuid: entity2.uuid,
             fact: r.fact,
@@ -239,7 +241,7 @@ class BackupService:
                 
                 try:
                     edges = _safe_json_loads(edges_content) if edges_content else []
-                except (original_json.JSONDecodeError, ValueError) as e:
+                except (json.JSONDecodeError, ValueError) as e:
                     logger.warning(f"Failed to parse edges.json: {e}")
                     logger.warning(f"Content preview (first 200 chars): {edges_content[:200]!r}")
                     edges = []
@@ -314,6 +316,8 @@ class BackupService:
         async with self.driver.session() as session:
             # Import entities first
             for entity in entities:
+                # Tenancy is group_id: restored data belongs to the target user
+                entity = {**entity, 'group_id': user_id}
                 if merge:
                     query = """
                     MERGE (e:Entity {uuid: $uuid})
@@ -338,6 +342,7 @@ class BackupService:
             
             # Import episodes
             for episode in episodes:
+                episode = {**episode, 'group_id': user_id}
                 if merge:
                     query = """
                     MERGE (e:Episodic {uuid: $uuid})
@@ -363,6 +368,7 @@ class BackupService:
             # Import edges
             for edge in edges:
                 edge_type = edge['type']
+                edge = {**edge, 'group_id': user_id}
                 
                 if merge:
                     query = f"""
