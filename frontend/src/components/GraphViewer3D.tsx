@@ -1,94 +1,147 @@
-import { useMemo, useRef, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import ForceGraph3D from 'react-force-graph-3d';
 import SpriteText from 'three-spritetext';
-import * as THREE from 'three';
+import { Group, Mesh, MeshLambertMaterial, SphereGeometry } from 'three';
 
-interface GraphViewer3DProps {
-    elements: any[];
+export interface GraphNode {
+    id: string;
+    label: string;
+    degree: number;
+    color?: string;
 }
 
-export default function GraphViewer3D({ elements }: GraphViewer3DProps) {
+export interface GraphEdge {
+    id: string;
+    source: string;
+    target: string;
+    label?: string;
+    name?: string;
+    invalid?: boolean;
+}
+
+interface GraphViewer3DProps {
+    nodes: GraphNode[];
+    edges: GraphEdge[];
+    onNodeClick?: (nodeId: string) => void;
+}
+
+const SPRITE_LABEL_COUNT = 40;
+const DIRECTIONAL_LINK_LIMIT = 300;
+
+export default function GraphViewer3D({ nodes, edges, onNodeClick }: GraphViewer3DProps) {
     const fgRef = useRef<any>();
+    // One shared low-poly geometry + material cache, created outside the render loop
+    const sphereGeometry = useMemo(() => new SphereGeometry(1, 8, 8), []);
+    const materialCache = useRef(new Map<string, MeshLambertMaterial>());
+
+    useEffect(() => {
+        // Dispose shared resources on unmount
+        return () => {
+            materialCache.current.forEach(m => m.dispose());
+            materialCache.current.clear();
+            sphereGeometry.dispose();
+        };
+    }, [sphereGeometry]);
 
     useEffect(() => {
         if (fgRef.current) {
-            // Increase repulsion to separate nodes (default is usually around -30)
-            // Making it more negative increases repulsion
-            fgRef.current.d3Force('charge').strength(-150);
+            // Increase repulsion to separate nodes
+            fgRef.current.d3Force('charge')?.strength(-150);
         }
     }, []);
 
     const graphData = useMemo(() => {
-        const nodes: any[] = [];
-        const links: any[] = [];
-        const nodeDegrees: Record<string, number> = {};
-        const nodeIds = new Set<string>();
+        const nodeIds = new Set(nodes.map(n => n.id));
 
-        // First pass: separate nodes and edges
-        elements.forEach(el => {
-            if (!el.data.source && !el.data.target) {
-                nodes.push({
-                    id: el.data.id,
-                    name: el.data.label || el.data.id,
-                    val: 1
+        // Drop edges pointing at missing nodes and self-loops (no "Unknown" placeholders)
+        const links = edges
+            .filter(e => e.source !== e.target && nodeIds.has(e.source) && nodeIds.has(e.target))
+            .map(e => ({
+                id: e.id,
+                source: e.source,
+                target: e.target,
+                name: e.label || e.name || '',
+                invalid: !!e.invalid,
+            }));
+
+        // Colors based on degree ranking (same as before, now from backend degree)
+        const uniqueDegrees = Array.from(new Set(nodes.map(n => n.degree || 0))).sort((a, b) => b - a);
+        const colorFor = (degree: number) => {
+            if (degree > 0 && degree === uniqueDegrees[0]) return '#ef4444'; // Red (Tailwind red-500)
+            if (degree > 0 && uniqueDegrees.length > 1 && degree === uniqueDegrees[1]) return '#eab308'; // Yellow
+            if (degree > 0 && uniqueDegrees.length > 2 && degree === uniqueDegrees[2]) return '#22c55e'; // Green
+            return '#3b82f6'; // Blue
+        };
+
+        const gNodes = nodes.map(n => ({
+            id: n.id,
+            name: n.label || n.id,
+            degree: n.degree || 0,
+            color: n.color || colorFor(n.degree || 0),
+            val: Math.sqrt(n.degree || 0) + 1,
+            showLabel: false,
+        }));
+
+        // In-scene SpriteText only for the top nodes by degree; rest rely on hover label
+        const topIds = new Set(
+            gNodes
+                .slice()
+                .sort((a, b) => b.degree - a.degree)
+                .slice(0, SPRITE_LABEL_COUNT)
+                .map(n => n.id)
+        );
+        gNodes.forEach(n => {
+            n.showLabel = topIds.has(n.id);
+        });
+
+        return { nodes: gNodes, links };
+    }, [nodes, edges]);
+
+    const linkCount = graphData.links.length;
+    const showDirectional = linkCount <= DIRECTIONAL_LINK_LIMIT;
+
+    const nodeThreeObject = useCallback(
+        (node: any) => {
+            const group = new Group();
+
+            let material = materialCache.current.get(node.color);
+            if (!material) {
+                material = new MeshLambertMaterial({
+                    color: node.color,
+                    transparent: true,
+                    opacity: 0.75,
                 });
-                nodeIds.add(el.data.id);
+                materialCache.current.set(node.color, material);
             }
-        });
 
-        // Second pass: process edges and add missing nodes
-        elements.forEach(el => {
-            if (el.data.source && el.data.target) {
-                // Skip self-loops
-                if (el.data.source === el.data.target) return;
+            const sphere = new Mesh(sphereGeometry, material);
+            sphere.scale.setScalar(Math.max(1.2, Math.sqrt(node.degree || 0) + 1));
+            group.add(sphere);
 
-                // Check if source/target nodes exist, if not add them
-                if (!nodeIds.has(el.data.source)) {
-                    nodes.push({ id: el.data.source, name: 'Unknown', val: 0.5, color: 'gray' });
-                    nodeIds.add(el.data.source);
-                }
-                if (!nodeIds.has(el.data.target)) {
-                    nodes.push({ id: el.data.target, name: 'Unknown', val: 0.5, color: 'gray' });
-                    nodeIds.add(el.data.target);
-                }
-
-                links.push({
-                    source: el.data.source,
-                    target: el.data.target,
-                    name: el.data.label || ''
-                });
-
-                // Count degrees
-                nodeDegrees[el.data.source] = (nodeDegrees[el.data.source] || 0) + 1;
-                nodeDegrees[el.data.target] = (nodeDegrees[el.data.target] || 0) + 1;
+            if (node.showLabel) {
+                const sprite = new SpriteText(node.name);
+                sprite.color = 'white';
+                sprite.textHeight = 4;
+                (sprite as any).renderOrder = 999;
+                (sprite as any).material.depthTest = false;
+                (sprite as any).material.depthWrite = false;
+                group.add(sprite);
             }
-        });
 
-        console.log(`GraphViewer3D: ${nodes.length} nodes, ${links.length} links`);
+            return group;
+        },
+        [sphereGeometry]
+    );
 
-        // Calculate colors based on degree ranking
-        // Get all unique degree values and sort them descending
-        const uniqueDegrees = Array.from(new Set(Object.values(nodeDegrees))).sort((a, b) => b - a);
+    const linkColor = useCallback(
+        (link: any) => (link.invalid ? 'rgba(160,160,160,0.18)' : 'rgba(255,255,255,0.45)'),
+        []
+    );
 
-        nodes.forEach(node => {
-            if (node.color === 'gray') return; // Skip auto-generated nodes
-
-            const degree = nodeDegrees[node.id] || 0;
-            node.val = Math.max(1, Math.sqrt(degree) * 2); // Size based on degree
-
-            if (degree === uniqueDegrees[0] && uniqueDegrees[0] > 0) {
-                node.color = '#ef4444'; // Red (Tailwind red-500)
-            } else if (degree === uniqueDegrees[1] && uniqueDegrees.length > 1) {
-                node.color = '#eab308'; // Yellow (Tailwind yellow-500)
-            } else if (degree === uniqueDegrees[2] && uniqueDegrees.length > 2) {
-                node.color = '#22c55e'; // Green (Tailwind green-500)
-            } else {
-                node.color = '#3b82f6'; // Blue (Tailwind blue-500)
-            }
-        });
-
-        return { nodes, links };
-    }, [elements]);
+    const linkWidth = useCallback(
+        (link: any) => (link.invalid ? 0.8 : 1.5),
+        []
+    );
 
     return (
         <div className="w-full h-full bg-gray-900">
@@ -96,43 +149,17 @@ export default function GraphViewer3D({ elements }: GraphViewer3DProps) {
                 ref={fgRef}
                 graphData={graphData}
                 nodeLabel="name"
-                nodeColor="color"
                 nodeRelSize={6}
-                nodeThreeObject={(node: any) => {
-                    const group = new THREE.Group();
-
-                    // Create Sphere
-                    const geometry = new THREE.SphereGeometry(node.val * 4, 32, 32);
-                    const material = new THREE.MeshLambertMaterial({
-                        color: node.color || '#3b82f6',
-                        transparent: true,
-                        opacity: 0.75
-                    });
-                    const sphere = new THREE.Mesh(geometry, material);
-                    group.add(sphere);
-
-                    // Create Text
-                    const sprite = new SpriteText(node.name);
-                    sprite.color = 'white';
-                    sprite.textHeight = Math.max(4, node.val * 2); // Scale text with node
-                    (sprite as any).position.set(0, 0, 0); // Center text
-
-                    // Ensure text is always on top and visible
-                    sprite.renderOrder = 999;
-                    sprite.material.depthTest = false;
-                    sprite.material.depthWrite = false;
-
-                    group.add(sprite);
-
-                    return group;
-                }}
-                linkColor={() => '#ffffff'}
-                linkWidth={1.5}
-                linkOpacity={0.6}
-                linkDirectionalParticles={2}
-                linkDirectionalParticleWidth={2}
-                linkDirectionalArrowLength={3.5}
-                linkDirectionalArrowRelPos={1}
+                nodeThreeObject={nodeThreeObject}
+                onNodeClick={onNodeClick ? (node: any) => onNodeClick(node.id) : undefined}
+                linkColor={linkColor}
+                linkWidth={linkWidth}
+                linkDirectionalParticles={showDirectional ? 2 : 0}
+                linkDirectionalParticleWidth={showDirectional ? 2 : 0}
+                linkDirectionalArrowLength={showDirectional ? 3.5 : 0}
+                linkDirectionalArrowRelPos={showDirectional ? 1 : 0}
+                warmupTicks={linkCount > 1000 ? 50 : 0}
+                cooldownTicks={200}
                 backgroundColor="#000000"
             />
         </div>

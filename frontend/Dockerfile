@@ -1,13 +1,12 @@
-FROM node:18-alpine as build
+FROM node:20-alpine as build
 
 WORKDIR /app
-COPY frontend/package.json .
-RUN npm install
-# Install typescript and vite globally to ensure they are executable
-RUN npm install -g typescript vite
+COPY frontend/package.json frontend/package-lock.json ./
+# Pinned toolchain from package-lock (tsc + vite are devDependencies)
+RUN npm ci --no-audit --no-fund
+# Sources + frontend/.env (VITE_* are baked in at build time)
 COPY frontend .
-# Run build using global binaries
-RUN tsc && vite build
+RUN npx tsc && npx vite build
 
 FROM nginx:alpine
 COPY --from=build /app/dist /usr/share/nginx/html

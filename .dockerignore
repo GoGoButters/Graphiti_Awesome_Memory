@@ -1,0 +1,10 @@
+.git
+**/node_modules
+**/dist
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+edges.json
+entities.json
+backup_repair
+*.tar.gz
