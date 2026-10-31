@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard';
 import UserGraph from './pages/UserGraph';
 import UserEpisodes from './pages/UserEpisodes';
 import UserFiles from './pages/UserFiles';
+import UserCommunities from './pages/UserCommunities';
 import Login from './pages/Login';
 
 const PrivateRoute = ({ children }: { children: JSX.Element }) => {
@@ -44,6 +45,11 @@ function App() {
                         <Route path="/users/:userId/episodes" element={
                             <PrivateRoute>
                                 <UserEpisodes />
+                            </PrivateRoute>
+                        } />
+                        <Route path="/users/:userId/communities" element={
+                            <PrivateRoute>
+                                <UserCommunities />
                             </PrivateRoute>
                         } />
                         <Route path="/users/:userId/files" element={

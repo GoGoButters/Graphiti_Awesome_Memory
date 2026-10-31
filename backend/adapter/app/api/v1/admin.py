@@ -81,7 +81,11 @@ async def get_user_communities(user_id: str, username: str = Depends(verify_jwt)
 
 @router.get("/users/{user_id}/communities/status")
 async def get_communities_status(user_id: str, username: str = Depends(verify_jwt)):
-    return graphiti_client.get_community_job(user_id)
+    """Build job state plus stored communities count and last build time."""
+    try:
+        return await graphiti_client.get_community_status(user_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load status: {e}")
 
 
 @router.post("/users/{user_id}/communities/build")

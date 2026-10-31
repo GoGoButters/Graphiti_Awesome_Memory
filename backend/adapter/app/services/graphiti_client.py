@@ -2897,6 +2897,22 @@ class GraphitiWrapper:
         jobs = getattr(self, "_community_jobs", {})
         return jobs.get(user_id, {"status": "idle"})
 
+    async def get_community_status(self, user_id: str) -> Dict[str, Any]:
+        """In-process build job merged with what is stored in Neo4j (survives restarts)."""
+        status = dict(self.get_community_job(user_id))
+        result = await self.client.driver.execute_query(
+            """
+            MATCH (c:Community {group_id: $g})
+            RETURN count(c) AS built, toString(max(c.created_at)) AS last_built_at
+            """,
+            g=user_id,
+            database_="neo4j",
+        )
+        record = result.records[0] if result.records else None
+        status["built"] = int(record["built"]) if record else 0
+        status["last_built_at"] = record["last_built_at"] if record else None
+        return status
+
     async def build_communities_for_user(self, user_id: str) -> Dict[str, Any]:
         """
         Rebuild communities for one group (graphiti removes only this group's
@@ -2931,7 +2947,8 @@ class GraphitiWrapper:
         query = """
         MATCH (c:Community {group_id: $g})
         WITH c, COUNT { (c)-[:HAS_MEMBER]->(:Entity) } AS members
-        RETURN c.uuid AS uuid, c.name AS name, c.summary AS summary, members
+        RETURN c.uuid AS uuid, c.name AS name, c.summary AS summary, members,
+               toString(c.created_at) AS created_at
         ORDER BY members DESC, c.uuid
         """
         params: Dict[str, Any] = {"g": user_id}
@@ -2947,6 +2964,7 @@ class GraphitiWrapper:
                 "name": r["name"] or "",
                 "summary": r["summary"] or "",
                 "members": int(r["members"]),
+                "created_at": r["created_at"],
             }
             for r in result.records
         ]

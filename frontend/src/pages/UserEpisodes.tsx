@@ -62,14 +62,22 @@ export default function UserEpisodes() {
                         <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 break-all">User: {userId}</p>
                     </div>
                 </div>
-                <Link
-                    to={`/users/${userId}/graph`}
-                    className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2 bg-blue-600 dark:bg-blue-500 text-white text-sm rounded hover:bg-blue-700 dark:hover:bg-blue-600 whitespace-nowrap"
-                >
-                    <Eye size={16} />
-                    <span className="hidden sm:inline">View Graph</span>
-                    <span className="sm:hidden">Graph</span>
-                </Link>
+                <div className="flex gap-2">
+                    <Link
+                        to={`/users/${userId}/communities`}
+                        className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2 bg-purple-600 text-white text-sm rounded hover:bg-purple-700 whitespace-nowrap"
+                    >
+                        🧩 <span className="hidden sm:inline">Communities</span>
+                    </Link>
+                    <Link
+                        to={`/users/${userId}/graph`}
+                        className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2 bg-blue-600 dark:bg-blue-500 text-white text-sm rounded hover:bg-blue-700 dark:hover:bg-blue-600 whitespace-nowrap"
+                    >
+                        <Eye size={16} />
+                        <span className="hidden sm:inline">View Graph</span>
+                        <span className="sm:hidden">Graph</span>
+                    </Link>
+                </div>
             </div>
 
             <div className="bg-white dark:bg-gray-800 rounded shadow dark:shadow-gray-700 overflow-x-auto">

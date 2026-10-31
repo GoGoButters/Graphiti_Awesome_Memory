@@ -23,6 +23,9 @@ def mock_graphiti():
     mock.get_summary = AsyncMock(return_value="profile")
     mock.get_communities = AsyncMock(return_value=[])
     mock.get_community_job = MagicMock(return_value={"status": "idle"})
+    mock.get_community_status = AsyncMock(
+        return_value={"status": "idle", "built": 0, "last_built_at": None}
+    )
     mock.build_communities_for_user = AsyncMock(return_value={"status": "done"})
     mock.get_community_members_graph = AsyncMock(return_value={"nodes": [], "edges": []})
     mock.delete_pending_episode = AsyncMock()

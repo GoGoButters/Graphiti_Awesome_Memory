@@ -204,6 +204,12 @@ export default function Dashboard() {
                                         >
                                             Graph
                                         </Link>
+                                        <Link
+                                            to={`/users/${user.user_id}/communities`}
+                                            className="text-purple-600 hover:text-purple-900 dark:text-purple-400 dark:hover:text-purple-300 text-sm whitespace-nowrap"
+                                        >
+                                            Communities
+                                        </Link>
                                         <button
                                             onClick={() => handleDelete(user.user_id)}
                                             disabled={deletingUserId === user.user_id}

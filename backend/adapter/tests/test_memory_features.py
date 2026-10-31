@@ -217,7 +217,9 @@ async def test_community_endpoints(mock_graphiti, override_dependencies):
         listing = await ac.get("/admin/users/u/communities")
         build = await ac.post("/admin/users/u/communities/build")
         members = await ac.get("/admin/users/u/communities/c1/members", params={"limit": 50})
+        status = await ac.get("/admin/users/u/communities/status")
     assert listing.json() == {"communities": [], "total": 0}
+    assert status.json()["built"] == 0
     assert build.json() == {"status": "started"}
     assert members.status_code == 200
     mock_graphiti.get_community_members_graph.assert_awaited_once_with("u", "c1", limit=50)
