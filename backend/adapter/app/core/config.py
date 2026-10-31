@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     ADMIN_USERNAME: str
     ADMIN_PASSWORD: str
     ALLOWED_ORIGINS: str = "http://localhost:3000"
+
+    # Graph (per-user node limit for GET /admin/users/{id}/graph)
+    GRAPH_DEFAULT_NODES: int = 300
+    GRAPH_MAX_NODES: int = 3000
+    GRAPH_MAX_EDGES_FACTOR: int = 4
     
     @property
     def allowed_origins_list(self) -> List[str]:

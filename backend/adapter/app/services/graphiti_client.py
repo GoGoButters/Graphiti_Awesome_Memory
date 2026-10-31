@@ -2029,207 +2029,118 @@ class GraphitiWrapper:
             logger.error(f"Error searching: {e}")
             return []
 
-    async def get_user_graph(self, user_id: str) -> Dict[str, Any]:
+    async def get_user_graph(self, user_id: str, limit: int = 300) -> Dict[str, Any]:
         """
-        Get the knowledge graph for a specific user
+        Get the knowledge graph for a specific user (top nodes by degree).
 
         Args:
             user_id: User identifier
+            limit: Maximum number of nodes to return (top-N by degree)
 
         Returns:
-            Graph structure with nodes and edges
+            Graph structure with nodes, edges and totals
         """
         try:
-            logger.info(f"Getting graph for user {user_id}")
+            logger.info(f"Getting graph for user {user_id}, limit={limit}")
 
-            # Get Neo4j driver from Graphiti client
             driver = self.client.driver
+            group_id = user_id
 
-            # Debug: Check what episodes exist for this user
-            debug_query = """
-            MATCH (e:Episodic)
-            WHERE e.name STARTS WITH $user_prefix
-            RETURN COUNT(e) as episode_count, COLLECT(e.name)[0..5] as sample_names
+            # Totals for this group only
+            totals_query = """
+            MATCH (n:Entity {group_id: $g})
+            WITH count(n) AS total_nodes
+            MATCH ()-[r:RELATES_TO]->()
+            WHERE r.group_id = $g
+            RETURN total_nodes, count(r) AS total_edges
             """
-            debug_result = await driver.execute_query(
-                debug_query, user_prefix=f"{user_id}_", database_="neo4j"
+            totals_result = await driver.execute_query(
+                totals_query, g=group_id, database_="neo4j"
             )
-            if debug_result.records:
-                logger.info(
-                    f"DEBUG: Found {debug_result.records[0]['episode_count']} episodes, samples: {debug_result.records[0]['sample_names']}"
-                )
+            total_nodes = int(totals_result.records[0]["total_nodes"]) if totals_result.records else 0
+            total_edges = int(totals_result.records[0]["total_edges"]) if totals_result.records else 0
 
-            # Debug: Check if there are PendingEpisode nodes (unprocessed)
-            debug_pending = """
-            MATCH (p:PendingEpisode)
-            WHERE p.user_id STARTS WITH $user_prefix OR p.user_id = $user_id
-            RETURN COUNT(p) as pending_count
+            # Top-N entities by degree (number of RELATES_TO neighbors)
+            top_query = """
+            MATCH (n:Entity {group_id: $g})
+            WITH n, COUNT{(n)-[:RELATES_TO]-(:Entity)} AS degree
+            ORDER BY degree DESC, n.uuid
+            LIMIT $limit
+            RETURN n.uuid AS uuid, n.name AS name, left(n.summary, 200) AS summary,
+                   toString(n.created_at) AS created_at, degree
             """
-            pending_result = await driver.execute_query(
-                debug_pending,
-                user_prefix=f"{user_id}_",
-                user_id=user_id,
-                database_="neo4j",
-            )
-            if pending_result.records:
-                logger.info(
-                    f"DEBUG: Found {pending_result.records[0]['pending_count']} PendingEpisode nodes (unprocessed)"
-                )
-
-            # Debug: Check what node labels exist in the database
-            debug_labels = """
-            CALL db.labels() YIELD label
-            RETURN collect(label) as all_labels
-            """
-            labels_result = await driver.execute_query(debug_labels, database_="neo4j")
-            if labels_result.records:
-                logger.info(
-                    f"DEBUG: Node labels in DB: {labels_result.records[0]['all_labels']}"
-                )
-
-            # Debug: Count nodes by label
-            debug_counts = """
-            MATCH (n)
-            RETURN labels(n) as label, COUNT(*) as count
-            ORDER BY count DESC
-            LIMIT 10
-            """
-            counts_result = await driver.execute_query(debug_counts, database_="neo4j")
-            if counts_result.records:
-                label_counts = [(r["label"], r["count"]) for r in counts_result.records]
-                logger.info(f"DEBUG: Node counts by label: {label_counts}")
-
-            # Debug: Check what entities exist
-            debug_entities = """
-            MATCH (n:Entity)
-            WHERE n.group_id = $user_id
-            RETURN COUNT(n) as entity_count
-            """
-            entity_result = await driver.execute_query(
-                debug_entities, user_id=user_id, database_="neo4j"
-            )
-            if entity_result.records:
-                logger.info(
-                    f"DEBUG: Found {entity_result.records[0]['entity_count']} entities with group_id={user_id}"
-                )
-
-            # Debug: Check total entities in DB
-            debug_total_entities = """
-            MATCH (n:Entity)
-            RETURN COUNT(n) as total_entities
-            """
-            total_result = await driver.execute_query(
-                debug_total_entities, database_="neo4j"
-            )
-            if total_result.records:
-                logger.info(
-                    f"DEBUG: Total Entity nodes in DB: {total_result.records[0]['total_entities']}"
-                )
-
-            # Debug: Check if user episodes have MENTIONS relationships
-            debug_mentions = """
-            MATCH (e:Episodic)
-            WHERE e.name STARTS WITH $user_prefix
-            OPTIONAL MATCH (e)-[:MENTIONS]->(n:Entity)
-            RETURN COUNT(DISTINCT e) as episodes_with_mentions, COUNT(DISTINCT n) as mentioned_entities
-            """
-            mentions_result = await driver.execute_query(
-                debug_mentions, user_prefix=f"{user_id}_", database_="neo4j"
-            )
-            if mentions_result.records:
-                logger.info(
-                    f"DEBUG: Episodes with MENTIONS: {mentions_result.records[0]['episodes_with_mentions']}, "
-                    f"Entities mentioned: {mentions_result.records[0]['mentioned_entities']}"
-                )
-
-            # Debug: Check what group_ids actually exist for entities
-            debug_group_ids = """
-            MATCH (n:Entity)
-            WHERE n.group_id IS NOT NULL
-            RETURN DISTINCT n.group_id as group_id
-            LIMIT 10
-            """
-            group_id_result = await driver.execute_query(
-                debug_group_ids, database_="neo4j"
-            )
-            if group_id_result.records:
-                sample_group_ids = [r["group_id"] for r in group_id_result.records]
-                logger.info(f"DEBUG: Sample entity group_ids in DB: {sample_group_ids}")
-            else:
-                logger.info(f"DEBUG: NO entities have group_id set!")
-
-            # Main query - use group_id since Graphiti correctly sets it during processing
-            # Debug showed entities DO have group_id, so this is safe and performant
-            query = """
-            MATCH (e:Episodic)
-            WHERE e.name STARTS WITH $user_prefix
-            MATCH (e)-[:MENTIONS]->(n:Entity)
-            WHERE n.group_id = $user_id
-            OPTIONAL MATCH (n)-[r:RELATES_TO]-(m:Entity)
-            WHERE m.group_id = $user_id
-            
-            RETURN 
-                collect(DISTINCT n) as entities,
-                collect(DISTINCT r) as relationships
-            """
-
-            result = await driver.execute_query(
-                query, user_prefix=f"{user_id}_", user_id=user_id, database_="neo4j"
+            top_result = await driver.execute_query(
+                top_query, g=group_id, limit=limit, database_="neo4j"
             )
 
-            # Convert to Cytoscape.js format
             nodes = []
+            node_uuids = []
+            for record in top_result.records:
+                node_uuids.append(record["uuid"])
+                nodes.append(
+                    {
+                        "data": {
+                            "id": record["uuid"],
+                            "label": record["name"] or "Unknown",
+                            "summary": record["summary"] or "",
+                            "created_at": record["created_at"],
+                            "degree": int(record["degree"]),
+                        }
+                    }
+                )
+
+            # Edges only between the selected nodes, excluding self-loops
+            edge_limit = limit * settings.GRAPH_MAX_EDGES_FACTOR
             edges = []
-
-            if result.records:
-                record = result.records[0]
-
-                # Process entity nodes
-                for entity in record["entities"]:
-                    nodes.append(
+            if node_uuids:
+                edges_query = """
+                MATCH (a:Entity)-[r:RELATES_TO]->(b:Entity)
+                WHERE a.uuid IN $ids AND b.uuid IN $ids AND a.uuid <> b.uuid AND r.group_id = $g
+                RETURN a.uuid AS source, b.uuid AS target, r.uuid AS uuid,
+                       left(r.fact, 100) AS fact, r.name AS name,
+                       (r.invalid_at IS NOT NULL OR (r.expired_at IS NOT NULL AND r.expired_at.year < 9999)) AS invalid
+                LIMIT $edge_limit
+                """
+                edges_result = await driver.execute_query(
+                    edges_query,
+                    ids=node_uuids,
+                    g=group_id,
+                    edge_limit=edge_limit,
+                    database_="neo4j",
+                )
+                for record in edges_result.records:
+                    edges.append(
                         {
                             "data": {
-                                "id": entity["uuid"],
-                                "label": entity.get("name", "Unknown"),
-                                "summary": (
-                                    entity.get("summary", "")[:200]
-                                    if entity.get("summary")
-                                    else ""
-                                ),
-                                "created_at": str(entity["created_at"])
-                                if "created_at" in entity
-                                else None,
+                                "id": record["uuid"],
+                                "source": record["source"],
+                                "target": record["target"],
+                                "label": record["fact"] or "",
+                                "name": record["name"],
+                                "invalid": bool(record["invalid"]),
                             }
                         }
                     )
 
-                # Process relationships
-                for rel in record["relationships"]:
-                    if rel:  # Skip None relationships
-                        edges.append(
-                            {
-                                "data": {
-                                    "id": rel["uuid"],
-                                    "source": rel["source_node_uuid"],
-                                    "target": rel["target_node_uuid"],
-                                    "label": (
-                                        rel.get("fact", "")[:100]
-                                        if rel.get("fact")
-                                        else ""
-                                    ),
-                                }
-                            }
-                        )
+            truncated = total_nodes > limit
 
             logger.info(
-                f"Retrieved {len(nodes)} nodes and {len(edges)} edges for user {user_id}"
+                f"Retrieved {len(nodes)} nodes and {len(edges)} edges for user {user_id} "
+                f"(total_nodes={total_nodes}, total_edges={total_edges}, truncated={truncated})"
             )
 
-            return {"nodes": nodes, "edges": edges}
+            return {
+                "nodes": nodes,
+                "edges": edges,
+                "total_nodes": total_nodes,
+                "total_edges": total_edges,
+                "truncated": truncated,
+                "limit": limit,
+            }
 
         except Exception as e:
             logger.error(f"Error getting user graph: {e}", exc_info=True)
-            return {"nodes": [], "edges": []}
+            raise
 
     async def get_summary(self, user_id: str) -> str:
         """

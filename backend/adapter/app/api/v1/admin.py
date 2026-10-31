@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Query
 from app.models.schemas import AdminUsersResponse, UserStats
 from app.core.auth import verify_jwt
+from app.core.config import settings
 from app.services.graphiti_client import graphiti_client
 from app.services.reprocessing_service import reprocessing_service
 from typing import Dict, Any
@@ -78,9 +79,18 @@ async def get_users(username: str = Depends(verify_jwt)):
 
 @router.get("/users/{user_id}/graph")
 async def get_user_graph(
-    user_id: str, depth: int = 2, username: str = Depends(verify_jwt)
+    user_id: str,
+    limit: int = Query(
+        default=settings.GRAPH_DEFAULT_NODES,
+        ge=10,
+        le=settings.GRAPH_MAX_NODES,
+    ),
+    username: str = Depends(verify_jwt),
 ):
-    return await graphiti_client.get_user_graph(user_id)
+    try:
+        return await graphiti_client.get_user_graph(user_id, limit=limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load graph: {e}")
 
 
 @router.delete("/users/{user_id}")
