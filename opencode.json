@@ -1,4 +1,5 @@
 {
+  "$schema": "https://opencode.ai/config.json",
   "remoteServers": {
     "docker-server": {
       "host": "192.168.1.107",

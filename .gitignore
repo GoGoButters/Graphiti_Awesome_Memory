@@ -13,3 +13,5 @@ create_fixed_backup.py
 repair_encoding.py
 edges.json
 entities.json
+# OpenChamber plans
+.opencode/
